@@ -6,6 +6,7 @@ extracts/
 reports/
 .local-ai/
 .claude/
+deploy/production.env
 __pycache__/
 *.pyc
 *.db

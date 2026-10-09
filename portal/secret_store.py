@@ -1,4 +1,4 @@
-"""Store connector credentials in the current macOS user's Keychain.
+"""Store connector credentials outside ordinary connection settings.
 
 SQLite holds only a random reference. Legacy JSON rows remain readable until
 an explicit, offline migration replaces them. A locked or unavailable Keychain
@@ -13,9 +13,12 @@ import uuid
 from functools import lru_cache
 from typing import Any
 
+from .config import APP
+
 
 SERVICE = "com.vortexveri.portal.connections"
 REFERENCE_KEY = "$keychain_ref"
+FERNET_KEY = "$fernet"
 # Current provider secret fields plus OAuth refresh tokens. Defend the shared
 # storage boundary even if an older caller put one of these in config.
 SECRET_FIELD_NAMES = frozenset({
@@ -26,6 +29,44 @@ SECRET_FIELD_NAMES = frozenset({
 
 class SecretStoreError(RuntimeError):
     """A credential could not be securely stored, read, or removed."""
+
+
+def _fernet():
+    """Load the server-only encryption backend when explicitly configured."""
+    if APP.secret_store_backend != "fernet":
+        return None
+    if not APP.secret_encryption_key:
+        raise SecretStoreError("PORTAL_SECRET_ENCRYPTION_KEY is required for the Fernet secret store")
+    try:
+        from cryptography.fernet import Fernet, InvalidToken
+        return Fernet(APP.secret_encryption_key.encode("ascii")), InvalidToken
+    except ImportError as exc:
+        raise SecretStoreError("Install cryptography for the Fernet secret store") from exc
+    except (ValueError, TypeError) as exc:
+        raise SecretStoreError("PORTAL_SECRET_ENCRYPTION_KEY is invalid") from exc
+
+
+def _encrypt(values: dict[str, Any]) -> str:
+    backend = _fernet()
+    if backend is None:
+        raise SecretStoreError("Encrypted server secrets are not configured")
+    fernet, _ = backend
+    raw = json.dumps(values, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
+    return fernet.encrypt(raw).decode("ascii")
+
+
+def _decrypt(token: str) -> dict[str, Any]:
+    backend = _fernet()
+    if backend is None:
+        raise SecretStoreError("Encrypted server secrets are not configured")
+    fernet, invalid_token = backend
+    try:
+        value = json.loads(fernet.decrypt(token.encode("ascii")).decode("utf-8"))
+    except (invalid_token, UnicodeError, ValueError) as exc:
+        raise SecretStoreError("Encrypted connection credential is unavailable") from exc
+    if not isinstance(value, dict):
+        raise SecretStoreError("Invalid encrypted connection credential")
+    return value
 
 
 @lru_cache(maxsize=1)
@@ -88,6 +129,10 @@ def reference(raw: str | None) -> str | None:
         raise SecretStoreError("Invalid connection credential record") from exc
     if not isinstance(value, dict):
         raise SecretStoreError("Invalid connection credential record")
+    if FERNET_KEY in value:
+        if len(value) != 1 or not isinstance(value[FERNET_KEY], str) or not value[FERNET_KEY]:
+            raise SecretStoreError("Invalid encrypted connection credential")
+        return None
     if REFERENCE_KEY not in value:
         return None
     ref = value[REFERENCE_KEY]
@@ -153,6 +198,14 @@ def delete(reference: str) -> None:
 
 
 def resolve(raw: str | None) -> dict[str, Any]:
+    try:
+        value = json.loads(raw or "{}")
+    except (TypeError, ValueError) as exc:
+        raise SecretStoreError("Invalid connection credential record") from exc
+    if isinstance(value, dict) and FERNET_KEY in value:
+        if len(value) != 1 or not isinstance(value[FERNET_KEY], str):
+            raise SecretStoreError("Invalid encrypted connection credential")
+        return _decrypt(value[FERNET_KEY])
     ref = reference(raw)
     if ref is not None:
         return get(ref)
@@ -165,6 +218,10 @@ def stage(values: dict[str, Any]) -> tuple[str, str | None]:
     """Write a new item before committing its reference to SQLite."""
     if not values:
         return "{}", None
+    if APP.secret_store_backend == "fernet":
+        return json.dumps({FERNET_KEY: _encrypt(values)}, separators=(",", ":")), None
+    if APP.secret_store_backend != "keychain":
+        raise SecretStoreError("PORTAL_SECRET_STORE must be keychain or fernet")
     ref = new_reference()
     put(ref, values)
     return marker(ref), ref

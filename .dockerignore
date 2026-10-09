@@ -1,0 +1,13 @@
+.env
+.git
+.local-ai
+backups
+data
+extracts
+reports
+__pycache__
+*.pyc
+*.db
+*.db-shm
+*.db-wal
+*.db-journal

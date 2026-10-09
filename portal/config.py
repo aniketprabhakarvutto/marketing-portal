@@ -73,6 +73,10 @@ class AppCfg:
     oauth_redirect_uri: str = os.getenv("PORTAL_OAUTH_REDIRECT_URI", "").strip()
     secure_cookie: bool = _b("PORTAL_COOKIE_SECURE", True)
     mcp_token: str = os.getenv("PORTAL_MCP_TOKEN", "").strip()
+    # Local macOS installs use Keychain. Linux server deployments use an
+    # application-held Fernet key to encrypt connector credentials at rest.
+    secret_store_backend: str = os.getenv("PORTAL_SECRET_STORE", "keychain").strip().lower()
+    secret_encryption_key: str = os.getenv("PORTAL_SECRET_ENCRYPTION_KEY", "").strip()
     # Forwarded client IPs are ignored unless an operator explicitly trusts a
     # proxy that sanitizes them. Empty by default to avoid trusting local apps.
     trusted_proxy_ips: tuple[str, ...] = tuple(_l("PORTAL_TRUSTED_PROXY_IPS"))

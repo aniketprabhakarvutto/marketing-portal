@@ -1,0 +1,9 @@
+services:
+  vortex-veri:
+    build: .
+    restart: unless-stopped
+    env_file: deploy/production.env
+    ports:
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - /srv/vortex-veri/data:/data
