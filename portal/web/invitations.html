@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Portal invitations · Vortex Veri</title>
+  <link rel="stylesheet" href="/static/invite.css">
+  <script src="/static/invitations.js" defer></script>
+</head>
+<body>
+  <main class="access-shell">
+    <header class="access-header">
+      <a class="brand" href="/#workspace" aria-label="Back to Vortex Veri workspace">
+        <img src="/static/assets/vortex-veri-mark.png" alt="">
+        <span><b>Vortex Veri</b><small>Workspace access</small></span>
+      </a>
+      <a class="back-link" href="/#workspace">Back to portal</a>
+    </header>
+
+    <section class="access-card">
+      <div class="eyebrow">Administrator · Portal accounts</div>
+      <h1>Invite a manager or CEO</h1>
+      <p class="intro">Create a viewer-only invitation. The recipient uses their email as their portal login and chooses their own password.</p>
+      <form id="inviteForm" class="invite-form">
+        <label for="inviteName">Name <span>optional</span>
+          <input id="inviteName" name="display_name" maxlength="100" autocomplete="name" placeholder="Manager or CEO name">
+        </label>
+        <label for="inviteEmail">Portal sign-in email
+          <input id="inviteEmail" name="email" type="email" maxlength="254" autocomplete="email" placeholder="name@company.com" required>
+        </label>
+        <div class="role-line"><span class="role-icon" aria-hidden="true">V</span><span><b>Viewer access</b><small>Can view reports, cannot manage connections or accounts.</small></span></div>
+        <button id="createInvite" class="primary" type="submit">Create invite link</button>
+        <p id="inviteMessage" class="message" role="status" aria-live="polite"></p>
+      </form>
+
+      <section id="inviteCreated" class="created-card" hidden aria-labelledby="createdTitle">
+        <div class="created-head"><span class="success-mark" aria-hidden="true">✓</span><div><h2 id="createdTitle">Invite link ready</h2><p>Copy it now. The raw link is shown only once.</p></div></div>
+        <label for="inviteLink">Private link
+          <input id="inviteLink" type="text" readonly autocomplete="off" spellcheck="false">
+        </label>
+        <div class="link-actions"><button id="copyInvite" class="primary" type="button">Copy link</button><span id="inviteExpiry"></span></div>
+        <p class="notice"><b>Host and identity:</b> This link opens only on the portal address shown in it, so your manager or CEO must be able to reach that host. The portal does not verify Google account ownership and does not send this link by email. Treat the link like a password and send it only to the intended person through an approved channel.</p>
+      </section>
+    </section>
+
+    <section class="access-card invite-list-card" aria-labelledby="pendingTitle">
+      <div class="list-heading"><div><div class="eyebrow">Access management</div><h2 id="pendingTitle">Pending invitations</h2></div><button id="refreshInvites" class="secondary" type="button">Refresh</button></div>
+      <p class="intro compact">Active and expired links appear here. Links expire after 72 hours. Revoking one prevents it from creating an account.</p>
+      <div id="inviteList" class="invite-list" aria-live="polite"><p class="empty">Loading invitations…</p></div>
+    </section>
+    <p class="footer-note">An invitation grants a Vortex Veri viewer login only. It does not connect Gmail, verify Google identity, read mail, or grant email sending permission.</p>
+  </main>
+</body>
+</html>

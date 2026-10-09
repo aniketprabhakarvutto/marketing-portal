@@ -1,0 +1,730 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vortex Veri</title>
+  <link rel="stylesheet" href="/static/styles.css?v=58">
+  <link rel="icon" type="image/png" href="/static/assets/vortex-veri-mark.png?v=2">
+</head>
+<body>
+
+<a class="skip-link" href="#mainContent">Skip to dashboard content</a>
+
+<header class="top">
+  <div class="brand-lockup">
+    <img id="brandMark" class="brand-mark" src="/static/assets/vortex-veri-mark.png" alt="">
+    <div>
+      <div class="brand">Vortex Veri</div>
+      <div id="freshness" class="freshness" aria-live="polite">Loading latest data…</div>
+    </div>
+  </div>
+  <a id="homeIconButton" class="home-icon-button" href="#overview" aria-label="Home" title="Home" aria-controls="tab-overview" aria-current="page">
+    <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m3 10 9-7 9 7M5 9v11h14V9M9 20v-6h6v6"/></svg>
+  </a>
+  <div class="spacer"></div>
+  <div class="range" role="group" aria-label="Reporting date range">
+    <button data-preset="7" aria-pressed="false">7d</button>
+    <button data-preset="30" class="on" aria-pressed="true">30d</button>
+    <button data-preset="90" aria-pressed="false">90d</button>
+    <div class="date-range-wrap">
+      <button id="dateRangeToggle" class="date-range-toggle" aria-expanded="false" aria-controls="dateRangeMenu">
+        <svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M7 3v3M17 3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z"/></svg>
+        <span id="dateRangeLabel">Select date range</span>
+        <svg class="icon icon-chevron" aria-hidden="true" viewBox="0 0 24 24"><path d="m8 10 4 4 4-4"/></svg>
+      </button>
+      <div id="dateRangeMenu" class="date-range-menu" hidden>
+        <input type="hidden" id="start">
+        <input type="hidden" id="end">
+        <div class="calendar-tabs" role="group" aria-label="Choose which date to set">
+          <button type="button" id="calendarStartTab" class="on" aria-pressed="true" data-calendar-mode="start"><span>Starts</span><b id="calendarStartValue">—</b></button>
+          <button type="button" id="calendarEndTab" aria-pressed="false" data-calendar-mode="end"><span>Ends</span><b id="calendarEndValue">—</b></button>
+        </div>
+        <div class="calendar-body">
+          <div class="calendar-heading">
+            <button type="button" id="calendarPrev" class="calendar-nav" aria-label="Previous month"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg></button>
+            <button type="button" id="calendarPeriodToggle" class="calendar-period-toggle" aria-expanded="false" aria-controls="calendarPeriodPicker">
+              <span id="calendarPeriodLabel">October 2026</span>
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></svg>
+            </button>
+            <button type="button" id="calendarNext" class="calendar-nav" aria-label="Next month"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></button>
+          </div>
+          <div id="calendarPeriodPicker" class="calendar-period-picker" hidden>
+            <div class="calendar-wheel-column">
+              <span class="calendar-wheel-label">Month</span>
+              <div class="calendar-wheel-frame">
+                <div id="calendarMonthWheel" class="calendar-wheel" role="listbox" aria-label="Choose month" tabindex="0"></div>
+                <span class="calendar-wheel-selection" aria-hidden="true"></span>
+              </div>
+            </div>
+            <div class="calendar-wheel-column">
+              <span class="calendar-wheel-label">Year</span>
+              <div class="calendar-wheel-frame">
+                <div id="calendarYearWheel" class="calendar-wheel" role="listbox" aria-label="Choose year" tabindex="0"></div>
+                <span class="calendar-wheel-selection" aria-hidden="true"></span>
+              </div>
+            </div>
+            <p class="calendar-wheel-help">Scroll or use the arrow keys to choose</p>
+          </div>
+          <div class="calendar-weekdays" aria-hidden="true"><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span><span>Su</span></div>
+          <div id="calendarGrid" class="calendar-grid" role="grid" aria-label="Calendar dates"></div>
+          <div class="calendar-preset-section">
+            <div class="calendar-preset-head"><span>Presets</span><button type="button" id="addDatePreset" aria-label="Create a date preset">+ New</button></div>
+            <div id="calendarPresets" class="calendar-presets" aria-label="Quick date ranges"></div>
+          </div>
+        </div>
+        <div class="date-range-actions">
+          <button id="cancelDateRange">Cancel</button>
+          <button id="applyDateRange" class="primary">Done</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="top-actions">
+    <button id="saveView" class="icon-only-action" type="button" aria-label="Save view" data-tooltip="Save view">
+      <svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M5 4h12l2 2v14H5V4Z"/><path d="M8 4v6h8V4M8 20v-6h8v6"/></svg>
+      <span class="sr-only">Save view</span>
+    </button>
+    <button id="exportView" class="icon-only-action" type="button" aria-label="Export visible data as CSV" data-tooltip="Export">
+      <svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14"/></svg>
+      <span class="sr-only">Export</span>
+    </button>
+    <button id="refreshPortal" class="icon-only-action" type="button" aria-label="Refresh saved data" data-tooltip="Refresh">
+      <svg class="icon icon-refresh" aria-hidden="true" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="m17.5 3.5 2.5 2.8-3.7 1"/></svg>
+      <span class="sr-only">Refresh</span>
+    </button>
+    <button id="syncAll" data-admin-only class="primary icon-only-action" type="button" aria-label="Sync latest data from all connected sources" data-tooltip="Sync latest">
+      <svg class="icon sync-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M20 7v5h-5"/><path d="M4 17v-5h5"/><path d="M6.1 8.1A7 7 0 0 1 18.8 10L20 12"/><path d="M17.9 15.9A7 7 0 0 1 5.2 14L4 12"/></svg>
+      <span class="sr-only">Sync latest</span>
+    </button>
+    <div class="portal-account" id="portalAccount" hidden>
+      <button id="accountMenuToggle" class="account-menu-toggle" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="accountMenu">
+        <span class="account-avatar" id="accountAvatar" aria-hidden="true">U</span>
+        <span class="account-summary"><span id="accountLabel">Your account</span><small id="accountRole"></small></span>
+        <svg class="account-chevron" aria-hidden="true" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></svg>
+      </button>
+      <div id="accountMenu" class="account-menu" role="menu" aria-label="Account menu" hidden>
+        <button id="accountSettingsButton" type="button" role="menuitem"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="m19.4 15 .1.1 1.3 1-1.4 2.4-1.6-.6a8 8 0 0 1-1.7 1l-.3 1.7h-2.8l-.3-1.7a8 8 0 0 1-1.7-1l-1.6.6L8 16.1l1.3-1a8 8 0 0 1 0-2l-1.3-1 1.4-2.4 1.6.6a8 8 0 0 1 1.7-1l.3-1.7h2.8l.3 1.7a8 8 0 0 1 1.7 1l1.6-.6 1.4 2.4-1.3 1a8 8 0 0 1-.1 1.9Z"/></svg>Profile &amp; settings</button>
+        <button id="changePasswordButton" type="button" role="menuitem"><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 1 1 8 0v3"/></svg>Change password</button>
+        <div class="account-menu-divider" role="separator"></div>
+        <button id="logoutButton" type="button" role="menuitem" class="account-signout"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M10 17l5-5-5-5M15 12H3M12 3h7a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-7"/></svg>Sign out</button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<nav class="tabs" aria-label="Portal sections" role="tablist">
+  <button id="nav-overview" data-tab="overview" role="tab" aria-selected="true" tabindex="0" aria-controls="tab-overview"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="m3 10 9-7 9 7M5 9v11h14V9M9 20v-6h6v6"/></svg><span>Overview</span></button>
+  <button id="nav-paid" data-tab="paid" role="tab" aria-selected="false" tabindex="-1" aria-controls="tab-paid"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="m3 11 17-7v16L3 14v-3Z"/><path d="M7 15v5h4l-1-4"/></svg><span>Paid campaigns</span></button>
+  <button id="nav-web" data-tab="web" role="tab" aria-selected="false" tabindex="-1" aria-controls="tab-web"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg><span>Website</span></button>
+  <button id="nav-search" data-tab="search" role="tab" aria-selected="false" tabindex="-1" aria-controls="tab-search"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><span>Search</span></button>
+  <button id="nav-crm" data-tab="crm" role="tab" aria-selected="false" tabindex="-1" aria-controls="tab-crm"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M4 4h16l-6 7v7l-4 2v-9L4 4Z"/></svg><span>CRM funnel</span></button>
+  <button id="nav-connections" data-admin-only data-tab="connections" role="tab" aria-selected="false" tabindex="-1" aria-controls="tab-connections"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M8 12h8M7 8v8M17 8v8M5 10H3v4h2M19 10h2v4h-2"/></svg><span>Connections</span></button>
+  <button id="nav-workspace" data-analyst-only data-tab="workspace" role="tab" aria-selected="false" tabindex="-1" aria-controls="tab-workspace"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M4 4h16v16H4zM4 10h16M10 10v10"/></svg><span>Workspace</span></button>
+  <div id="sourceTabs" class="source-tabs source-picker" role="group" aria-label="Connected sources" hidden>
+  <button id="sourceSelect" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="sourceMenu">
+      <span class="source-select-label">Connected sources</span>
+      <svg class="source-select-chevron" aria-hidden="true" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></svg>
+    </button>
+    <div id="sourceMenu" class="source-menu" role="menu" hidden></div>
+  </div>
+  <button id="nav-hub" data-tab="hub" role="tab" aria-selected="false" tabindex="-1" aria-controls="tab-hub"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="19" cy="19" r="2"/><path d="m7 11 10-5M7 13l10 5"/></svg><span>Data hub</span></button>
+</nav>
+
+<main id="mainContent" tabindex="-1">
+  <div class="page-intro">
+    <div>
+      <p class="eyebrow">Marketing intelligence</p>
+      <h1 id="pageTitle">Performance overview</h1>
+      <p id="pageDescription">Monitor spend, traffic, leads, and completed outcomes in one view.</p>
+    </div>
+  </div>
+  <div id="demoBanner" class="banner" hidden>
+    <b>Demo data.</b> The portal is showing 90 days of generated sample data so you can see it
+    working. Open <b>Connections</b> to add an account and run its first sync. When your real data
+    is ready, run <code>python3 -m portal.cli reset-demo</code> once to remove the sample rows.
+  </div>
+  <details id="sourceStatus" class="source-status" aria-label="Data source health">
+    <summary class="source-status-summary">
+      <span class="health-label"><span id="healthDot" class="health-dot" aria-hidden="true"></span><span id="healthText">Checking data sources…</span></span>
+      <span class="source-status-action">View details <span id="sourceStatusCount">0</span><svg class="source-status-chevron" aria-hidden="true" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></svg></span>
+    </summary>
+    <div id="sourceStatusList" class="source-status-list" role="list" aria-label="Connected data sources"></div>
+  </details>
+
+  <!-- ---------------------------------------------------------- overview -->
+  <section id="tab-overview" role="tabpanel" aria-labelledby="nav-overview">
+    <section class="overview-metrics" aria-labelledby="overviewMetricsTitle">
+      <div class="overview-section-heading"><h2 id="overviewMetricsTitle">Core performance</h2><span id="overviewCoverage">Spend and CRM outcomes</span></div>
+      <div class="tiles" id="tilesPrimary"></div>
+    </section>
+    <details id="additionalMetrics" class="additional-metrics">
+      <summary><span><b>Additional metrics</b><small>Web, organic and supporting indicators</small></span><span class="additional-metrics-count"><span id="additionalMetricCount">6</span> metrics<svg class="additional-metrics-chevron" aria-hidden="true" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></svg></span></summary>
+      <div class="tiles" id="tilesSecondary"></div>
+    </details>
+
+    <div class="grid2">
+      <div class="card">
+        <h2>Daily ad spend by platform</h2>
+        <p class="sub">What each platform costs per day across the selected range.</p>
+        <div class="legend" id="lgSpend"></div>
+        <svg class="chart" id="chSpend" height="240" role="img" aria-label="Daily advertising spend by platform"></svg>
+      </div>
+      <div class="card">
+        <h2>CRM leads and sales per day</h2>
+        <p class="sub">Real outcomes from your CRM, not platform-reported conversions.</p>
+        <div class="legend" id="lgLeads"></div>
+        <svg class="chart" id="chLeads" height="240" role="img" aria-label="Daily CRM leads and completed sales"></svg>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Blended channel performance</h2>
+      <p class="sub">Ad spend joined to CRM outcomes on a normalised channel key — this is the
+        cost-per-lead and cost-per-sale the platforms cannot show you on their own.</p>
+      <div class="tablewrap"><table id="tblChannels"></table></div>
+    </div>
+  </section>
+
+  <!-- -------------------------------------------------------------- paid -->
+  <section id="tab-paid" role="tabpanel" aria-labelledby="nav-paid" hidden>
+    <div class="card">
+      <h2>Campaign performance</h2>
+      <p class="sub">Compare each connected paid platform with the same campaign and CRM definitions.</p>
+      <div class="campaign-toolbar">
+        <label class="campaign-search">
+          <span>Search campaigns</span>
+          <input id="campaignSearch" type="search" placeholder="Search by campaign name…"
+                 autocomplete="off">
+        </label>
+        <div class="column-picker">
+          <button id="columnsToggle" aria-haspopup="dialog" aria-expanded="false" aria-controls="columnDrawer"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16M9 5v14M16 5v14"/></svg><span>Modify columns</span></button>
+        </div>
+        <label class="row-height-control" title="Set the height for all campaign rows">
+          <span>Row height</span>
+          <input id="campaignRowHeight" type="range" min="32" max="72" step="2" value="38" aria-label="Campaign table row height">
+          <output id="campaignRowHeightValue" for="campaignRowHeight">38px</output>
+        </label>
+        <button id="refreshPaid" title="Reload campaign data"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"/></svg><span>Refresh</span></button>
+      </div>
+      <div class="campaign-filters">
+        <div class="filter-group" role="group" aria-label="Platform filter">
+          <span>Platform</span>
+          <button data-src="" class="on" aria-pressed="true">All</button>
+          <button data-src="google_ads" aria-pressed="false">Google Ads</button>
+          <button data-src="meta_ads" aria-pressed="false">Meta Ads</button>
+        </div>
+        <div class="filter-group" role="group" aria-label="Funnel filter">
+          <span>Funnel</span>
+          <button data-funnel="" class="on" aria-pressed="true">All</button>
+          <button data-funnel="demand" aria-pressed="false">Demand</button>
+          <button data-funnel="supply" aria-pressed="false">Supply</button>
+        </div>
+        <span id="campaignCount" class="result-count" aria-live="polite"></span>
+      </div>
+      <div class="tablewrap campaign-tablewrap">
+        <div class="resize-hint">Drag column and row edges to resize · Double-click a column edge to auto-fit.</div>
+        <table id="tblCampaigns"></table>
+      </div>
+    </div>
+  </section>
+
+  <!-- --------------------------------------------------------------- ga4 -->
+  <section id="tab-web" role="tabpanel" aria-labelledby="nav-web" hidden>
+    <div class="card">
+      <h2>GA4 traffic</h2>
+      <p class="sub">Session-scoped attribution, so it lines up with what the ad platforms report.</p>
+      <div class="legend" role="group" aria-label="GA4 breakdown">
+        <button data-dim="channel" class="on" aria-pressed="true">By channel</button>
+        <button data-dim="source" aria-pressed="false">By source</button>
+        <button data-dim="campaign" aria-pressed="false">By campaign</button>
+      </div>
+      <div class="tablewrap"><table id="tblWeb"></table></div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------ search -->
+  <section id="tab-search" role="tabpanel" aria-labelledby="nav-search" hidden>
+    <div class="card ahrefs-panel">
+      <div class="cardhead">
+        <div>
+          <h2><span class="source-title-logo"><img src="https://www.google.com/s2/favicons?domain=ahrefs.com&sz=64" alt="">Ahrefs Site Explorer</span></h2>
+          <p class="sub" id="ahrefsContext">SEO authority and estimated organic demand for vutto.in.</p>
+        </div>
+        <div class="ahrefs-actions"><span class="status-pill delayed" id="ahrefsStatus">Checking</span><button id="ahrefsReconnect" type="button" class="primary" data-admin-only hidden>Connect Ahrefs</button></div>
+      </div>
+      <div class="kpis ahrefs-kpis" id="ahrefsKpis"></div>
+    </div>
+    <div class="card">
+      <h2>Organic search performance</h2>
+      <p class="sub">Search Console data lags two to three days, so the most recent days fill in later.</p>
+      <div class="legend" role="group" aria-label="Search Console breakdown">
+        <button data-sdim="query" class="on" aria-pressed="true">By query</button>
+        <button data-sdim="page" aria-pressed="false">By page</button>
+      </div>
+      <div class="tablewrap"><table id="tblSearch"></table></div>
+    </div>
+  </section>
+
+  <!-- --------------------------------------------------------------- crm -->
+  <section id="tab-crm" role="tabpanel" aria-labelledby="nav-crm" hidden>
+    <div class="crm-section-head">
+      <h2>Campaign lead data</h2>
+      <p class="sub" id="campaignLeadFreshness">Current lead totals by campaign source.</p>
+    </div>
+    <div class="card">
+      <div class="tablewrap"><table id="tblCampaignLeads"></table></div>
+    </div>
+    <div class="crm-section-head">
+      <h2>Funnel-stage data</h2>
+      <p class="sub" id="funnelFreshness">Lead progression from the Superleap CRM extract.</p>
+    </div>
+    <div class="grid2" id="funnels"></div>
+    <div class="crm-section-head">
+      <h2>Paid lead funnels</h2>
+      <p class="sub">CRM progression for leads attributed to Google Ads and Meta Ads.</p>
+    </div>
+    <div class="grid2" id="channelFunnels"></div>
+    <div class="grid2">
+      <div class="card">
+        <h2>Leads by source</h2>
+        <p class="sub">As the CRM records the source, with the channel each one maps to.</p>
+        <div class="tablewrap"><table id="tblSource"></table></div>
+      </div>
+      <div class="card">
+        <h2>Leads by city</h2>
+        <p class="sub">Where demand comes from, and where it converts.</p>
+        <div class="tablewrap"><table id="tblCity"></table></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Buy vs sell split</h2>
+      <p class="sub">Demand-side and supply-side lead volume.</p>
+      <div class="tablewrap"><table id="tblType"></table></div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------- connections -->
+  <section id="tab-connections" role="tabpanel" aria-labelledby="nav-connections" hidden>
+    <div class="card">
+      <div class="cardhead">
+        <div>
+          <h2>Connected accounts</h2>
+          <p class="sub">Credentials are stored on this machine only. Nothing is sent anywhere
+            except to the platform it belongs to.</p>
+        </div>
+        <button id="addConnection" data-admin-only class="primary">Add a connection</button>
+      </div>
+      <div class="conns" id="conns"></div>
+    </div>
+
+    <div class="card">
+      <h2>Sync history</h2>
+      <p class="sub">Every pull attempt, including the ones that failed and why.</p>
+      <div class="tablewrap"><table id="tblSyncs"></table></div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------ dynamic source view -->
+  <section id="tab-source" role="tabpanel" hidden>
+    <div id="sourceView"></div>
+  </section>
+
+  <!-- --------------------------------------------------------- workspace -->
+  <section id="tab-workspace" role="tabpanel" aria-labelledby="nav-workspace" hidden>
+    <div class="workspace-grid">
+      <article class="card workspace-explorer">
+        <div class="cardhead"><div><h2>Data explorer</h2><p class="sub">Build a campaign report by choosing dimensions, metrics, filters, and sorting.</p></div><button id="runExplorer" class="primary">Run report</button></div>
+        <div class="explorer-controls">
+          <fieldset class="explorer-picker"><legend>Group by</legend>
+            <label><input type="checkbox" data-explorer-dimension value="campaign" checked> Campaign</label>
+            <label><input type="checkbox" data-explorer-dimension value="date"> Date</label>
+            <label><input type="checkbox" data-explorer-dimension value="platform"> Platform</label>
+            <label><input type="checkbox" data-explorer-dimension value="account"> Account</label>
+            <label><input type="checkbox" data-explorer-dimension value="campaign_type"> Campaign type</label>
+          </fieldset>
+          <fieldset class="explorer-picker"><legend>Metrics</legend>
+            <label><input type="checkbox" data-explorer-metric value="spend" checked> Spend</label>
+            <label><input type="checkbox" data-explorer-metric value="clicks"> Clicks</label>
+            <label><input type="checkbox" data-explorer-metric value="impressions"> Impressions</label>
+            <label><input type="checkbox" data-explorer-metric value="conversions"> Conversions</label>
+            <label><input type="checkbox" data-explorer-metric value="ctr"> CTR</label>
+            <label><input type="checkbox" data-explorer-metric value="cpc"> CPC</label>
+            <label><input type="checkbox" data-explorer-metric value="cpa"> CPA</label>
+          </fieldset>
+          <label>Campaign contains<input id="explorerFilter" type="search" placeholder="Optional campaign text"></label>
+          <label>Sort by<select id="explorerSort"></select><select id="explorerDirection" aria-label="Sort direction"><option value="desc">Highest first</option><option value="asc">Lowest first</option></select></label>
+        </div>
+        <div class="tablewrap"><table id="tblExplorer"></table></div>
+        <p id="explorerNotice" class="hint" role="status" hidden></p>
+        <div class="workspace-actions"><input id="explorerViewName" placeholder="Saved view name"><button id="saveExplorerView">Save this view</button><select id="savedExplorerViews" aria-label="Open saved Explorer view"><option value="">Open saved view…</option></select><button id="removeExplorerView" class="workspace-remove" type="button" disabled data-admin-only>Remove view</button></div>
+      </article>
+
+      <article class="card"><h2>Planning and attribution</h2><p class="sub">Run-rate forecasts and campaign-matched CRM outcomes.</p><div id="planningCards" class="planning-cards"></div><p id="attributionStatus" class="callout planning-note"></p></article>
+
+      <article class="card"><div class="cardhead"><div><h2>Dashboard builder</h2><p class="sub">Choose the KPI cards to include, then save a reusable team dashboard.</p></div></div>
+        <div class="workspace-form"><input id="dashboardName" placeholder="Dashboard name"><select id="dashboardTemplate"><option value="executive">Executive overview</option><option value="acquisition">Acquisition performance</option><option value="crm">CRM outcomes</option><option value="custom">Custom selection</option></select><button id="saveDashboard" class="primary">Create dashboard</button></div>
+        <fieldset class="dashboard-metric-picker"><legend>Cards to include</legend>
+          <label><input type="checkbox" data-dashboard-metric value="spend" checked> Spend</label>
+          <label><input type="checkbox" data-dashboard-metric value="impressions"> Impressions</label>
+          <label><input type="checkbox" data-dashboard-metric value="clicks"> Clicks</label>
+          <label><input type="checkbox" data-dashboard-metric value="platform_conversions"> Platform conversions</label>
+          <label><input type="checkbox" data-dashboard-metric value="leads" checked> CRM leads</label>
+          <label><input type="checkbox" data-dashboard-metric value="qualified"> Qualified leads</label>
+          <label><input type="checkbox" data-dashboard-metric value="sales" checked> Sales</label>
+          <label><input type="checkbox" data-dashboard-metric value="revenue"> CRM revenue</label>
+          <label><input type="checkbox" data-dashboard-metric value="cpl"> CPL</label>
+          <label><input type="checkbox" data-dashboard-metric value="cac" checked> CAC</label>
+          <label><input type="checkbox" data-dashboard-metric value="roas"> CRM ROAS</label>
+          <label><input type="checkbox" data-dashboard-metric value="ctr"> CTR</label>
+          <label><input type="checkbox" data-dashboard-metric value="sessions"> Sessions</label>
+        </fieldset>
+        <div class="workspace-actions"><select id="savedDashboards"><option value="">Preview a dashboard…</option></select></div><div id="dashboardPreview" class="planning-cards" hidden></div><div id="dashboardList" class="workspace-list"></div></article>
+
+      <article class="card" data-admin-only><h2>Transformation rules</h2><p class="sub">Standardise campaign and channel values before they reach reports.</p>
+        <div class="workspace-form"><input id="ruleName" placeholder="Rule name"><select id="ruleField"><option value="channel">Channel</option><option value="campaign_name">Campaign</option><option value="source">Source</option></select><select id="ruleMatch"><option value="contains">Contains</option><option value="equals">Equals</option><option value="regex">Regular expression</option></select><input id="rulePattern" placeholder="Match value"><input id="ruleOutput" placeholder="Standard value"><button id="saveRule" data-admin-only class="primary">Add rule</button></div><div id="ruleList" class="workspace-list"></div></article>
+
+      <article class="card" data-admin-only><h2>Destinations</h2><p class="sub">Choose where approved reports go. Local download and folder delivery work now. Email delivery needs a recipient and a send-only Gmail connection.</p>
+        <div class="workspace-form"><input id="destinationName" placeholder="Destination name"><select id="destinationKind"><option value="download">Instant download</option><option value="folder">Local folder</option><option value="email">Email</option><option value="google_sheets" disabled>Google Sheets · not available yet</option><option value="webhook" disabled>Webhook · not available yet</option><option value="warehouse" disabled>Data warehouse · not available yet</option></select><label id="destinationSettingLabel">Report subfolder<input id="destinationSetting" placeholder="Optional folder name"></label><button id="saveDestination" data-admin-only class="primary">Add destination</button></div><p id="destinationHelp" class="callout">Local download and folder delivery are ready. Email reports use the send-only Gmail account connected in Profile &amp; Settings. Google Sheets, webhook, and warehouse delivery are not available yet.</p><div id="destinationList" class="workspace-list"></div></article>
+
+      <article class="card" data-admin-only><h2>Scheduled jobs</h2><p class="sub">Run source refreshes, reports, snapshots, and data-quality checks on a schedule.</p><p id="workspaceSchedulerStatus" class="callout"></p>
+        <div class="workspace-form"><input id="jobName" placeholder="Job name"><select id="jobType"><option value="report">CSV report</option><option value="quality">Data-quality check</option><option value="snapshot">Report snapshot</option><option value="sync">Source refresh</option><option value="backup">Database backup</option></select><select id="jobDestination"><option value="">Default local reports folder</option></select><select id="jobSchedule"><option value="daily">Every day</option><option value="weekdays">Weekdays</option><option value="weekly">Every Monday</option><option value="monthly">First day of month</option></select><input id="jobRunAt" type="time" value="09:00"><button id="saveJob" data-admin-only class="primary">Schedule job</button></div><div id="jobList" class="workspace-list"></div><div id="jobRunList" class="workspace-list"></div></article>
+
+      <article class="card" data-admin-only><h2>Portal accounts</h2><p class="sub">Create accounts directly or invite leadership as viewers. Invitees set their own password using a one-time link.</p><p><a href="/invitations">Invite a manager or CEO</a></p><div class="workspace-form"><input id="userName" placeholder="Name"><input id="userEmail" type="email" placeholder="Work email"><select id="userRole"><option value="viewer">Viewer</option><option value="analyst">Analyst</option><option value="admin">Administrator</option></select><div class="password-wrapper"><input id="userPassword" type="password" autocomplete="new-password" minlength="14" placeholder="Temporary password (14+ characters)"><button type="button" class="password-toggle" aria-label="Show password" aria-controls="userPassword"><svg viewBox="0 0 24 24"><path d="M12 5C5.6 5 1.7 8.8 1 14c.7 5.2 4.6 9 11 9s10.3-3.8 11-9c-.7-5.2-4.6-9-11-9zm0 14c-2.8 0-5-2.2-5-5s2.2-5 5-5 5 2.2 5 5-2.2 5-5 5zm0-8c-1.7 0-3 1.3-3 3s1.3 3 3 3 3-1.3 3-3-1.3-3-3-3z"/></svg></button></div><button id="saveUser" class="primary">Create or update account</button></div><div id="userList" class="workspace-list"></div></article>
+      <article class="card"><h2>Metric dictionary</h2><p class="sub">Shared definitions prevent teams from calculating the same KPI differently.</p><div id="metricDictionary" class="workspace-list"></div></article>
+      <article class="card" data-admin-only><h2>Audit history</h2><p class="sub">Recent saved views, rules, jobs, and connection changes.</p><div id="auditList" class="workspace-list"></div></article>
+    </div>
+  </section>
+
+  <!-- ----------------------------------------------------------- data hub -->
+  <section id="tab-hub" role="tabpanel" aria-labelledby="nav-hub" hidden>
+    <div class="hub-hero">
+      <div>
+        <p class="eyebrow">Reporting workspace</p>
+        <h2>Build, automate, and share your reporting</h2>
+        <p class="sub">Saved views, calculated metrics, exports, scheduled refreshes, and a searchable connector directory.</p>
+      </div>
+      <div class="hub-stat"><b id="connectorTotal">…</b><span>catalogue entries</span></div>
+    </div>
+
+    <div class="hub-grid">
+      <article class="card feature-card quality-card">
+        <div class="feature-card-head"><div class="feature-icon" aria-hidden="true">✓</div><div><h2>Data quality</h2><p class="sub">Checks that protect reports from stale, missing, or inconsistent data.</p></div></div>
+        <div id="qualityList" class="quality-list" aria-live="polite"><div class="empty compact">Running checks…</div></div>
+      </article>
+      <article class="card feature-card insight-card">
+        <div class="insight-card-head"><div><h2>Performance insights</h2><p class="sub">What changed, what it means, and where the team should look next.</p></div><button id="refreshInsights" type="button" title="Regenerate insights from current data"><svg class="icon icon-refresh" aria-hidden="true" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5M6.1 8.1A7 7 0 0 1 18.8 10L20 12M17.9 15.9A7 7 0 0 1 5.2 14L4 12"/></svg><span>Refresh insights</span></button></div>
+        <div id="insightRange" class="insight-range" aria-live="polite">Loading current reporting range…</div>
+        <div id="insightList" class="insight-list"></div>
+      </article>
+      <article class="card feature-card">
+        <div class="feature-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 4h14v16H5zM8 8h8M8 12h8M8 16h5"/></svg></div>
+        <h2>Saved views</h2>
+        <p class="sub">Return to the same page, range, campaign filters, and visible columns.</p>
+        <div id="savedViews" class="saved-views"></div>
+      </article>
+      <article class="card feature-card metric-card">
+        <div class="feature-card-head"><div class="feature-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 12h2M14 12h2M8 16h2M14 16h2"/></svg></div><div><h2>Campaign metric calculator</h2><p class="sub">Choose a metric, enter two values, and see the answer here.</p></div></div>
+        <div class="metric-guide" aria-label="How to calculate a metric"><span><b>1</b> Choose metric</span><span><b>2</b> Enter values</span><span><b>3</b> See result</span></div>
+        <div class="compact-panel metric-preset-panel">
+          <label class="compact-label" for="metricPresetSelect">Choose a metric</label>
+          <select id="metricPresetSelect" aria-label="Metric to calculate">
+            <option value="cac">CAC: Cost per sale</option>
+            <option value="cpl">CPL: Cost per lead</option>
+            <option value="cpc">CPC: Cost per click</option>
+            <option value="roas">CRM ROAS: CRM revenue per spend</option>
+            <option value="platform_roas">Platform ROAS: platform conversion value per spend</option>
+            <option value="revenue_per_lead">Revenue per lead</option>
+            <option value="budget_pacing">Budget pacing</option>
+            <option value="ltv_cac">LTV : CAC</option>
+          </select>
+        </div>
+        <form id="metricForm" class="metric-form">
+          <label class="metric-input-mode">Use values from<select id="metricInputMode"><option value="manual">Enter values manually</option><option value="portal">Current portal date range</option></select></label>
+          <div class="metric-campaign"><span class="metric-campaign-title">Select a campaign <span class="optional-word">Optional</span></span>
+            <div class="metric-campaign-picker">
+              <button id="metricCampaignToggle" type="button" aria-haspopup="listbox" aria-expanded="false"><span id="metricCampaignLabel">Choose a campaign…</span><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></svg></button>
+              <div id="metricCampaignMenu" class="metric-campaign-menu" hidden>
+                <label><span class="sr-only">Search campaigns</span><input id="metricCampaignSearch" type="search" placeholder="Search campaigns…" autocomplete="off"></label>
+                <div id="metricCampaignOptions" class="metric-campaign-options" role="listbox" aria-label="Campaigns"></div>
+              </div>
+            </div>
+            <select id="metricCampaignSelect" hidden tabindex="-1" aria-hidden="true"><option value="">Choose a campaign…</option></select>
+          </div>
+          <div id="metricManualInputs" class="metric-manual-inputs">
+            <label><span id="metricValueALabel">Amount spent</span><input id="metricValueA" type="number" min="0" step="any" inputmode="decimal" placeholder="Enter amount"></label>
+            <span aria-hidden="true">÷</span>
+            <label><span id="metricValueBLabel">Total sales</span><input id="metricValueB" type="number" min="0" step="any" inputmode="decimal" placeholder="Enter value"></label>
+          </div>
+          <p id="metricFormulaHelp" class="metric-formula-help">Choose a shortcut above, or build your own formula.</p>
+          <div id="metricCalculatorResult" class="metric-calculator-result" aria-live="polite">Enter both values to see the result.</div>
+          <button class="primary metric-add" type="submit">Calculate</button>
+        </form>
+        <div id="customMetrics" class="metric-list" hidden></div>
+      </article>
+      <article class="card feature-card automation-card">
+        <div class="feature-card-head"><div class="feature-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5M6.1 8.1A7 7 0 0 1 18.8 10L20 12M17.9 15.9A7 7 0 0 1 5.2 14L4 12"/></svg></div><div><h2>Data automation</h2><p class="sub">Keep reporting current and ready to share.</p></div></div>
+        <div class="automation-builder">
+          <label for="automationType">Add an automation</label>
+          <select id="automationType">
+            <option value="data_sync">Scheduled data sync</option>
+            <option value="reports">Automatic reports</option>
+            <option value="performance_alerts">Performance alerts</option>
+            <option value="budget_monitoring">Budget monitoring</option>
+            <option value="recommendations">Campaign recommendations</option>
+            <option value="crm_followup">CRM follow-up automation</option>
+            <option value="data_quality">Data-quality checks</option>
+            <option value="offline_conversions">Offline conversion preparation</option>
+            <option value="snapshots">Snapshots and backups</option>
+            <option value="custom_rules">Custom automation rules</option>
+          </select>
+          <div class="automation-choice-summary">
+            <span class="automation-choice-icon" id="automationChoiceIcon" aria-hidden="true">↻</span>
+            <div><b id="automationChoiceTitle">Scheduled data sync</b><small id="automationChoiceDescription">Refresh connected marketing and CRM sources automatically.</small></div>
+          </div>
+          <button id="createAutomation" data-admin-only class="primary" type="button">Configure automation</button>
+        </div>
+        <span class="compact-label" id="automationScheduleLabel">Active schedules</span>
+        <div class="schedule-list">
+          <div><span class="status-dot good" id="fullScheduleDot"></span><b>Daily full refresh</b><small id="fullSchedule">06:15 · previous 30 days</small></div>
+          <div><span class="status-dot good" id="topupScheduleDot"></span><b>Conversion top-up</b><small id="topupSchedule">Every 4 hours · previous 3 days</small></div>
+          <div><span class="status-dot"></span><b>Email CSV report</b><small>Email setup required</small></div>
+        </div>
+        <div id="automationRuleList" class="automation-rule-list"></div>
+        <div class="automation-actions">
+          <button id="configureAutomation" data-admin-only>Manage sync schedule</button>
+          <button id="downloadAutomation">Download CSV now</button>
+          <button id="runAutomation" data-admin-only class="primary">Sync all sources now</button>
+        </div>
+      </article>
+    </div>
+
+    <div class="card mcp-card">
+      <div class="mcp-card-main">
+        <div class="mcp-mark" aria-hidden="true">AI</div>
+        <div><div class="mcp-title-row"><h2>AI assistants via MCP</h2><span id="mcpStatus" class="mcp-status">Checking…</span></div>
+        <p class="sub">Ask Claude, ChatGPT-compatible clients, or other MCP tools questions about this portal’s live marketing and CRM data.</p></div>
+      </div>
+      <div class="mcp-actions"><span id="mcpToolCount">8 read-only tools</span><button id="openMcpSetup" class="primary">Set up MCP</button></div>
+    </div>
+
+    <div class="card connector-directory">
+      <div class="cardhead">
+        <div><h2>Connector directory</h2><p class="sub">Connect supported platforms directly. For other sources, use the platform's official API or import a CSV or published Google Sheet.</p></div>
+        <label class="connector-search"><span class="sr-only">Search connectors</span><input id="connectorSearch" type="search" placeholder="Search connectors…"></label>
+      </div>
+      <div class="connector-summary" id="connectorSummary"></div>
+      <div id="connectorGrid" class="connector-grid"></div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------ profile & settings -->
+  <section id="tab-settings" role="tabpanel" aria-labelledby="pageTitle" hidden>
+    <div class="settings-layout">
+      <aside class="card settings-sidebar" aria-label="Account settings sections">
+        <div class="settings-identity"><span class="settings-avatar" id="settingsAvatar" aria-hidden="true">U</span><div><b id="settingsIdentityName">Your account</b><small id="settingsIdentityRole">Portal member</small></div></div>
+        <nav class="settings-nav" aria-label="Account settings">
+          <button type="button" class="on" data-settings-panel="profile" aria-current="page"><span aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg></span>Profile</button>
+          <button type="button" data-settings-panel="security"><span aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 1 1 8 0v3M12 14v3"/></svg></span>Security</button>
+          <button type="button" data-settings-panel="notifications"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg></span>Notifications</button>
+          <button type="button" data-settings-panel="appearance"><span aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 3v18a9 9 0 0 0 0-18Z"/></svg></span>Appearance</button>
+          <button type="button" class="admin-setting" data-admin-only data-settings-panel="apps"><span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M13 5h6v6M19 5l-9 9"/><path d="M18 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h5"/></svg></span>Connected apps</button>
+        </nav>
+        <button type="button" id="settingsLogout" class="settings-logout"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M10 17l5-5-5-5M15 12H3M12 3h7a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-7"/></svg>Sign out</button>
+      </aside>
+
+      <div class="settings-panels">
+        <div class="settings-panel" data-settings-content="profile">
+          <article class="card settings-card">
+            <div class="settings-card-heading"><div><span class="settings-eyebrow">Your account</span><h2>Profile details</h2><p class="sub">The name shown in the portal. Your sign-in email is fixed until verified email changes are supported.</p></div></div>
+            <form id="profileForm" class="settings-form">
+              <label for="profileName">Display name<input id="profileName" name="display_name" maxlength="100" autocomplete="name" required></label>
+              <label for="profileEmail">Sign-in email<input id="profileEmail" type="email" autocomplete="email" disabled></label>
+              <label for="profileRole">Portal role<input id="profileRole" disabled></label>
+              <div class="settings-form-actions"><button type="submit" class="primary">Save profile</button><span id="profileSaveState" role="status" aria-live="polite"></span></div>
+            </form>
+          </article>
+        </div>
+
+        <div class="settings-panel" data-settings-content="security" hidden>
+          <article class="card settings-card">
+            <div class="settings-card-heading"><div><span class="settings-eyebrow">Account protection</span><h2>Password & sessions</h2><p class="sub">Use a unique password. Changing it signs out every other active session.</p></div></div>
+            <form id="settingsPasswordForm" class="settings-form settings-password-form">
+              <label for="settingsCurrentPassword">Current password<div class="password-wrapper"><input id="settingsCurrentPassword" type="password" autocomplete="current-password" required><button type="button" class="password-toggle" aria-label="Show password" aria-controls="settingsCurrentPassword"><svg viewBox="0 0 24 24"><path d="M12 5C5.6 5 1.7 8.8 1 14c.7 5.2 4.6 9 11 9s10.3-3.8 11-9c-.7-5.2-4.6-9-11-9zm0 14c-2.8 0-5-2.2-5-5s2.2-5 5-5 5 2.2 5 5-2.2 5-5 5zm0-8c-1.7 0-3 1.3-3 3s1.3 3 3 3 3-1.3 3-3-1.3-3-3-3z"/></svg></button></div></label>
+              <label for="settingsNewPassword">New password<div class="password-wrapper"><input id="settingsNewPassword" type="password" autocomplete="new-password" minlength="14" required><button type="button" class="password-toggle" aria-label="Show password" aria-controls="settingsNewPassword"><svg viewBox="0 0 24 24"><path d="M12 5C5.6 5 1.7 8.8 1 14c.7 5.2 4.6 9 11 9s10.3-3.8 11-9c-.7-5.2-4.6-9-11-9zm0 14c-2.8 0-5-2.2-5-5s2.2-5 5-5 5 2.2 5 5-2.2 5-5 5zm0-8c-1.7 0-3 1.3-3 3s1.3 3 3 3 3-1.3 3-3-1.3-3-3-3z"/></svg></button></div><small>At least 14 characters.</small></label>
+              <label for="settingsConfirmPassword">Confirm new password<div class="password-wrapper"><input id="settingsConfirmPassword" type="password" autocomplete="new-password" minlength="14" required><button type="button" class="password-toggle" aria-label="Show password" aria-controls="settingsConfirmPassword"><svg viewBox="0 0 24 24"><path d="M12 5C5.6 5 1.7 8.8 1 14c.7 5.2 4.6 9 11 9s10.3-3.8 11-9c-.7-5.2-4.6-9-11-9zm0 14c-2.8 0-5-2.2-5-5s2.2-5 5-5 5 2.2 5 5-2.2 5-5 5zm0-8c-1.7 0-3 1.3-3 3s1.3 3 3 3 3-1.3 3-3-1.3-3-3-3z"/></svg></button></div></label>
+              <div class="settings-form-actions"><button type="submit" class="primary">Update password</button><span id="passwordSaveState" role="status" aria-live="polite"></span></div>
+            </form>
+          </article>
+          <article class="card settings-card settings-session-card"><div><h2>Signed-in devices</h2><p class="sub">Sign out other browsers and devices. This device stays signed in.</p></div><button id="revokeOtherSessions" type="button">Sign out other sessions</button><span id="sessionsState" role="status" aria-live="polite"></span></article>
+          <article class="card settings-card" data-admin-only>
+            <div class="settings-card-heading"><div><span class="settings-eyebrow">Team access</span><h2>Invite a portal viewer</h2><p class="sub">Give a manager or colleague their own viewer account. You can revoke an unused invitation here.</p></div></div>
+            <p class="callout settings-note"><b>Access boundary:</b> This creates a viewer-only portal login. It does not grant access to the Performance Gmail sender or sign in with Google. The email address is not verified, so anyone with the one-time link can complete setup for that invited address. The link expires after 72 hours and is not emailed automatically. Share it privately and revoke it if exposed. This link uses the current portal address; localhost only works on this computer. Remote invitees need a reachable HTTPS or approved private-network address.</p>
+            <form id="settingsInviteForm" class="settings-form settings-invite-form">
+              <label for="settingsInviteName">Name<input id="settingsInviteName" name="display_name" maxlength="100" autocomplete="name" placeholder="Manager name"></label>
+              <label for="settingsInviteEmail">Work email<input id="settingsInviteEmail" name="email" type="email" maxlength="254" autocomplete="email" placeholder="name@company.com" required></label>
+              <div class="settings-form-actions"><button type="submit" class="primary">Create viewer invite</button><span id="settingsInviteMessage" role="status" aria-live="polite"></span></div>
+            </form>
+            <div id="settingsInviteCreated" class="settings-invite-created" hidden>
+              <label for="settingsInviteLink">One-time invite link</label>
+              <div class="settings-invite-link"><input id="settingsInviteLink" type="text" readonly aria-describedby="settingsInviteExpiry"><button id="copySettingsInvite" type="button">Copy link</button></div>
+              <small id="settingsInviteExpiry"></small>
+            </div>
+            <div class="settings-invitation-heading"><h3>Pending invitations</h3><button id="refreshSettingsInvites" type="button">Refresh</button></div>
+            <div id="settingsInvitationList" class="settings-invitation-list" aria-live="polite"><div class="empty compact">Open Security to load invitations.</div></div>
+          </article>
+        </div>
+
+        <div class="settings-panel" data-settings-content="notifications" hidden>
+          <article class="card settings-card">
+            <div class="settings-card-heading"><div><span class="settings-eyebrow">Stay informed</span><h2>Notifications</h2><p class="sub">Browser notifications only appear while the portal is open in this browser. This is not a background push service.</p></div></div>
+            <label class="settings-switch"><span><b>Browser notifications</b><small>Allow this portal to show important status updates outside its tab.</small></span><input id="browserNotifications" type="checkbox"></label>
+            <label class="settings-switch"><span><b>Failed data syncs</b><small>Notify when a refresh fails while this portal is open.</small></span><input id="notifySyncFailures" type="checkbox"></label>
+            <label class="settings-switch"><span><b>Completed manual syncs</b><small>Notify when a manual refresh finishes while this portal is open.</small></span><input id="notifySyncComplete" type="checkbox"></label>
+            <div class="settings-form-actions"><button id="saveNotificationSettings" type="button" class="primary">Save notifications</button><span id="notificationsSaveState" role="status" aria-live="polite"></span></div>
+            <p class="callout settings-note"><b>Email alerts:</b> Scheduled reports and alert automations are not active yet. Connecting Gmail below does not start or schedule emails.</p>
+          </article>
+        </div>
+
+        <div class="settings-panel" data-settings-content="appearance" hidden>
+          <article class="card settings-card">
+            <div class="settings-card-heading"><div><span class="settings-eyebrow">Display</span><h2>Appearance</h2><p class="sub">Choose a theme and accent colour for this account. Changes preview here and apply across the portal after saving.</p></div></div>
+            <fieldset class="appearance-section">
+              <legend>Accent colour</legend>
+              <p>Choose the colour used for highlights and controls.</p>
+              <div class="accent-options" role="radiogroup" aria-label="Accent colour">
+                <label class="accent-option" title="Portal default"><input type="radio" name="accentPreference" value=""><span class="accent-swatch accent-default"></span><span class="sr-only">Portal default</span></label>
+                <label class="accent-option" title="Blue"><input type="radio" name="accentPreference" value="#2563eb"><span class="accent-swatch swatch-blue"></span><span class="sr-only">Blue</span></label>
+                <label class="accent-option" title="Teal"><input type="radio" name="accentPreference" value="#0f766e"><span class="accent-swatch swatch-teal"></span><span class="sr-only">Teal</span></label>
+                <label class="accent-option" title="Purple"><input type="radio" name="accentPreference" value="#7c3aed"><span class="accent-swatch swatch-purple"></span><span class="sr-only">Purple</span></label>
+                <label class="accent-option" title="Green"><input type="radio" name="accentPreference" value="#15803d"><span class="accent-swatch swatch-green"></span><span class="sr-only">Green</span></label>
+                <label class="accent-option" title="Orange"><input type="radio" name="accentPreference" value="#c2410c"><span class="accent-swatch swatch-orange"></span><span class="sr-only">Orange</span></label>
+                <label class="accent-custom" for="accentColorPicker">Custom <input id="accentColorPicker" type="color" value="#0f5262" aria-label="Choose custom accent colour"></label>
+                <label class="accent-hex" for="accentHex">Hex <input id="accentHex" type="text" value="#0F5262" maxlength="7" inputmode="text" autocomplete="off" spellcheck="false" aria-label="Custom accent hex value"></label>
+              </div>
+              <p id="accentSaveState" class="appearance-hint" aria-live="polite">Portal default accent is selected.</p>
+            </fieldset>
+            <fieldset class="appearance-section theme-section">
+              <legend>Interface theme</legend>
+              <p>Select how the portal should look.</p>
+              <div class="appearance-theme-options">
+                <label class="appearance-theme-card"><input type="radio" name="themePreference" value="system"><span class="theme-preview theme-preview-system" aria-hidden="true"><i></i><b></b><em></em><small></small></span><span class="theme-choice-label">System</span></label>
+                <label class="appearance-theme-card"><input type="radio" name="themePreference" value="light"><span class="theme-preview theme-preview-light" aria-hidden="true"><i></i><b></b><em></em><small></small></span><span class="theme-choice-label">Light</span></label>
+                <label class="appearance-theme-card"><input type="radio" name="themePreference" value="dark"><span class="theme-preview theme-preview-dark" aria-hidden="true"><i></i><b></b><em></em><small></small></span><span class="theme-choice-label">Dark</span></label>
+              </div>
+            </fieldset>
+            <div class="appearance-footer"><button id="resetAppearance" type="button" class="subtle">Reset to default</button><div class="settings-form-actions"><button id="cancelAppearance" type="button">Cancel</button><button id="saveAppearance" type="button" class="primary">Save changes</button></div></div>
+            <span id="appearanceSaveState" class="appearance-save-state" role="status" aria-live="polite"></span>
+          </article>
+        </div>
+
+        <div class="settings-panel" data-settings-content="apps" hidden>
+          <article class="card settings-card">
+            <div class="settings-card-heading"><div><span class="settings-eyebrow">Email delivery</span><h2>Gmail access</h2><p class="sub">See which Google account is authorized and grant or switch access for portal email delivery.</p></div><span id="gmailStatusPill" class="settings-status">Checking</span></div>
+            <div id="gmailConnectionCard" class="gmail-connection-card" aria-live="polite"><div class="empty compact">Checking Gmail setup…</div></div>
+            <div class="gmail-actions">
+              <button id="gmailConfigure" type="button">Set up OAuth</button>
+              <button id="gmailConnect" type="button" class="primary" hidden>Grant Gmail access</button>
+              <button id="gmailTest" type="button" hidden>Send test email to me</button>
+              <button id="gmailDisconnect" type="button" class="danger" hidden>Disconnect</button>
+            </div>
+            <p class="callout settings-note"><b>How access works:</b> Choose the Google account and approve the request on Google's permission screen. An email address by itself does not grant access. The portal requests send-only permission and cannot read, search, or delete inbox messages.</p>
+            <p class="settings-security-note">OAuth credentials and refresh token are stored in the local portal database with file permissions. The current local app does not encrypt these values separately. For production use, move them to a managed secret store. Disconnecting removes the token from this portal; to revoke Google's grant too, use <a href="https://myaccount.google.com/connections" target="_blank" rel="noopener noreferrer">Google Account connections</a>.</p>
+          </article>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div class="modal" id="modal" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="sheethead">
+      <h3 id="modalTitle">Add a connection</h3>
+      <button id="modalClose" aria-label="Close dialog"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+    </div>
+    <div class="sheetbody" id="modalBody"></div>
+    <div class="sheetfoot" id="modalFoot"></div>
+  </div>
+</div>
+
+<div class="column-drawer-overlay" id="columnDrawer" hidden>
+  <aside class="column-drawer" role="dialog" aria-modal="true" aria-labelledby="columnDrawerTitle">
+    <div class="column-drawer-head">
+      <div>
+        <span class="column-drawer-kicker">Table settings</span>
+        <h2 id="columnDrawerTitle">Modify columns</h2>
+      </div>
+      <button type="button" id="columnDrawerClose" class="column-drawer-close" aria-label="Close column settings">
+        <svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+      <div class="column-drawer-tabs" role="tablist" aria-label="Table setting sections">
+      <button type="button" id="columnTabColumns" class="on" role="tab" aria-selected="true" aria-controls="columnPanelColumns" tabindex="0" data-column-panel="columns">Columns</button>
+      <button type="button" id="columnTabAppearance" role="tab" aria-selected="false" aria-controls="columnPanelAppearance" tabindex="-1" data-column-panel="appearance">Appearance</button>
+      <button type="button" id="columnTabAdvanced" role="tab" aria-selected="false" aria-controls="columnPanelAdvanced" tabindex="-1" data-column-panel="advanced">Advanced</button>
+    </div>
+    <div class="column-drawer-body">
+      <section id="columnPanelColumns" class="column-drawer-section" role="tabpanel" aria-labelledby="columnTabColumns" tabindex="0" data-column-section="columns">
+        <p class="column-drawer-intro">Choose the fields that matter for this report. Your layout is saved only after you apply changes.</p>
+        <label class="column-drawer-search">
+          <svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+          <span class="sr-only">Search available columns</span>
+          <input id="columnDrawerSearch" type="search" placeholder="Search columns…" autocomplete="off">
+        </label>
+        <div class="column-drawer-actions">
+          <span id="columnDrawerCount" aria-live="polite">0 selected</span>
+          <div><button type="button" id="columnDrawerEssentials">Recommended</button><button type="button" id="columnDrawerAll">Select all</button></div>
+        </div>
+        <div id="columnDrawerFields" class="column-drawer-fields"></div>
+        <p id="columnDrawerEmpty" class="column-drawer-empty" hidden>No columns match your search.</p>
+      </section>
+      <section id="columnPanelAppearance" class="column-drawer-section" role="tabpanel" aria-labelledby="columnTabAppearance" tabindex="0" data-column-section="appearance" hidden>
+        <div class="column-setting-block">
+          <div><h3>Row density</h3><p>Choose how much space appears around table values.</p></div>
+          <div class="density-options" id="columnDensityOptions" role="group" aria-label="Row density">
+            <button type="button" data-density="compact" aria-pressed="false"><span class="density-preview compact"><i></i><i></i><i></i><i></i></span><b>Compact</b><small>More rows</small></button>
+            <button type="button" data-density="comfortable" aria-pressed="true"><span class="density-preview comfortable"><i></i><i></i><i></i></span><b>Comfortable</b><small>Balanced</small></button>
+            <button type="button" data-density="spacious" aria-pressed="false"><span class="density-preview spacious"><i></i><i></i></span><b>Spacious</b><small>Easy to scan</small></button>
+          </div>
+        </div>
+        <label class="column-setting-toggle"><span><b>Freeze first column</b><small>Keep the main label visible while scrolling.</small></span><input id="columnFreezeFirst" type="checkbox" checked></label>
+        <label class="column-setting-toggle"><span><b>Alternating row colour</b><small>Use subtle bands to make wide rows easier to follow.</small></span><input id="columnRowStripes" type="checkbox" checked></label>
+      </section>
+      <section id="columnPanelAdvanced" class="column-drawer-section" role="tabpanel" aria-labelledby="columnTabAdvanced" tabindex="0" data-column-section="advanced" hidden>
+        <div class="column-setting-block"><div><h3>Reset table layout</h3><p>Clear saved sizing without changing your data.</p></div></div>
+        <div class="column-reset-list">
+          <button type="button" id="columnResetWidths"><span><b>Reset column widths</b><small>Return all widths to their automatic size.</small></span><span aria-hidden="true">›</span></button>
+          <button type="button" id="columnResetHeights"><span><b>Reset row heights</b><small>Remove every manually resized row.</small></span><span aria-hidden="true">›</span></button>
+          <button type="button" id="columnRestoreDefaults"><span><b>Restore default columns</b><small>Use the recommended set for this table.</small></span><span aria-hidden="true">›</span></button>
+        </div>
+      </section>
+    </div>
+    <div class="column-drawer-foot">
+      <button type="button" id="columnDrawerCancel">Cancel</button>
+      <button type="button" id="columnDrawerSave" class="primary">Apply changes</button>
+    </div>
+  </aside>
+</div>
+
+
+
+<button id="assistantLauncher" class="assistant-launcher" type="button" aria-expanded="false" aria-controls="assistantPanel" aria-label="Open AI assistant">Ask AI</button>
+<section id="assistantPanel" class="assistant-panel" aria-label="AI assistant" hidden>
+  <div class="assistant-head"><div><strong>Ask the portal</strong><small id="assistantStatus">Checking reports…</small></div><button id="assistantClose" type="button" aria-label="Close AI assistant">×</button></div>
+  <div id="assistantMessages" class="assistant-messages" role="log" aria-live="polite"><p class="assistant-intro">Ask about stored portal data or how to use its features. Dates in your question override the dashboard date range.</p><div class="assistant-prompts" aria-label="Example questions"><button type="button" data-assistant-prompt="What was our spend today?">Spend today</button><button type="button" data-assistant-prompt="How many CRM leads did we get yesterday?">Leads yesterday</button><button type="button" data-assistant-prompt="Compare spend today vs yesterday">Compare dates</button><button type="button" data-assistant-prompt="What can this portal do?">Portal help</button><button type="button" data-assistant-prompt="How do I invite my manager to view the portal?">Manager access</button></div></div>
+  <form id="assistantForm" class="assistant-form">
+    <label class="sr-only" for="assistantQuestion">Question for the portal</label>
+    <textarea id="assistantQuestion" maxlength="1000" rows="2" placeholder="What changed in campaign performance?" required></textarea>
+    <button id="assistantSend" class="primary" type="submit">Ask</button>
+  </form>
+  <p class="assistant-disclosure">Answers use stored portal reports and a built-in feature guide. The model is not retrained on your data, cannot read the internet or Gmail, and cannot run portal actions. If local AI is offline, basic report answers remain available.</p>
+</section>
+
+<div class="tip" id="tip"></div>
+<div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+
+<script src="/static/connectors.js?v=2"></script>
+  <script src="/static/app.js?v=78"></script>
+</body>
+</html>

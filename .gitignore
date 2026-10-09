@@ -1,0 +1,17 @@
+.env
+.venv/
+data/
+backups/
+extracts/
+reports/
+.local-ai/
+.claude/
+__pycache__/
+*.pyc
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+*.log
+.DS_Store
+service-account*.json
