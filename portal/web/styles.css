@@ -2217,6 +2217,7 @@ main > section.is-loading::before {
 
 /* Compact header actions with labels revealed on hover and keyboard focus. */
 .top-actions { align-items: center; gap: 8px; }
+.top-actions .home-icon-button { flex: 0 0 38px; width: 38px; height: 38px; }
 .top-actions .icon-only-action {
   position: relative; display: inline-grid; width: 38px; height: 38px; min-width: 38px; min-height: 38px;
   flex: 0 0 38px; place-items: center; padding: 0; border-radius: 10px;
