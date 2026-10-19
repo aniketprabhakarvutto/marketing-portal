@@ -214,6 +214,13 @@
           <button data-src="google_ads" aria-pressed="false">Google Ads</button>
           <button data-src="meta_ads" aria-pressed="false">Meta Ads</button>
         </div>
+        <label class="filter-group account-filter" for="googleAdsAccount">
+          <span>Google Ads account</span>
+          <select id="googleAdsAccount" aria-describedby="googleAdsAccountHint">
+            <option value="">All Google Ads accounts</option>
+          </select>
+          <small id="googleAdsAccountHint">Choose an account to view only its Google Ads campaigns.</small>
+        </label>
         <div class="filter-group" role="group" aria-label="Funnel filter">
           <span>Funnel</span>
           <button data-funnel="" class="on" aria-pressed="true">All</button>

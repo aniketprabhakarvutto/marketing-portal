@@ -26,7 +26,7 @@ const PAGE_INFO = {
 const state = {
   start: null, end: null, currency: "INR",
   dataTo: null,
-  campaignSrc: "", campaignFunnel: "", campaignQuery: "", campaignRows: [],
+  campaignSrc: "", campaignFunnel: "", campaignGoogleAccount: "", campaignQuery: "", campaignRows: [],
   campaignColumns: new Set(),
   campaignWidths: {}, campaignRowHeights: {}, campaignRowHeight: 38,
   tableViews: {},
@@ -1557,6 +1557,31 @@ function campaignFunnel(name = "") {
   return "";
 }
 
+function googleAccountKey(row) {
+  return String(row.account_id || row.account || "").trim();
+}
+
+function renderGoogleAccountOptions() {
+  const select = $("#googleAdsAccount");
+  if (!select) return;
+  const accounts = new Map();
+  state.campaignRows.filter((row) => row.source === "google_ads").forEach((row) => {
+    const key = googleAccountKey(row);
+    if (!key || accounts.has(key)) return;
+    const name = String(row.account || "").trim();
+    accounts.set(key, name && name !== key ? `${name} · ${key}` : key);
+  });
+  const choices = [...accounts.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  if (state.campaignGoogleAccount && !accounts.has(state.campaignGoogleAccount)) state.campaignGoogleAccount = "";
+  select.innerHTML = ["<option value=\"\">All Google Ads accounts</option>", ...choices.map(([key, label]) =>
+    `<option value="${esc(key)}">${esc(label)}</option>`)].join("");
+  select.value = state.campaignGoogleAccount;
+  select.disabled = state.campaignSrc === "meta_ads" || !choices.length;
+  select.title = select.disabled
+    ? (state.campaignSrc === "meta_ads" ? "Select Google Ads to choose an account" : "No Google Ads accounts in this date range")
+    : "Filter Google Ads campaigns by account";
+}
+
 const PAID_COLUMNS = [
   {
     id: "campaign", label: "Campaign", width: 360, wide: true, get: (r) => {
@@ -1827,8 +1852,11 @@ function renderPaid() {
     const matchesQuery = !query || (r.campaign || "").toLowerCase().includes(query);
     const matchesFunnel = !state.campaignFunnel
       || campaignFunnel(r.campaign) === state.campaignFunnel;
-    return matchesQuery && matchesFunnel;
+    const matchesGoogleAccount = !state.campaignGoogleAccount
+      || (r.source === "google_ads" && googleAccountKey(r) === state.campaignGoogleAccount);
+    return matchesQuery && matchesFunnel && matchesGoogleAccount;
   });
+  renderGoogleAccountOptions();
   $("#campaignCount").textContent = `${nf.format(rows.length)} campaign${rows.length === 1 ? "" : "s"}`;
   const columns = PAID_COLUMNS.filter((column) => state.campaignColumns.has(column.id));
   table($("#tblCampaigns"), columns, rows, query || state.campaignFunnel
@@ -3735,9 +3763,24 @@ async function boot() {
     b.classList.add("on");
     b.setAttribute("aria-pressed", "true");
     state.campaignSrc = b.dataset.src;
+    if (state.campaignSrc !== "google_ads") state.campaignGoogleAccount = "";
     loadPaid();
     if (refreshMetricCampaigns) refreshMetricCampaigns();
   }));
+  $("#googleAdsAccount").addEventListener("change", (ev) => {
+    state.campaignGoogleAccount = ev.target.value;
+    if (state.campaignGoogleAccount && state.campaignSrc !== "google_ads") {
+      const google = $("[data-src=\"google_ads\"]");
+      $$("[data-src]").forEach((x) => { x.classList.remove("on"); x.setAttribute("aria-pressed", "false"); });
+      google.classList.add("on");
+      google.setAttribute("aria-pressed", "true");
+      state.campaignSrc = "google_ads";
+      loadPaid();
+      if (refreshMetricCampaigns) refreshMetricCampaigns();
+      return;
+    }
+    renderPaid();
+  });
   $$("[data-funnel]").forEach((b) => b.addEventListener("click", () => {
     $$("[data-funnel]").forEach((x) => { x.classList.remove("on"); x.setAttribute("aria-pressed", "false"); });
     b.classList.add("on");
