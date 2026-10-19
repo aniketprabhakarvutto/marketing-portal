@@ -117,6 +117,23 @@ class ScheduledExecutionTests(unittest.TestCase):
         self.assertEqual(platform.run_due_jobs(today,"23:59"),[])
         self.assertEqual(platform.recover_interrupted_jobs(),0)
 
+    def test_local_docker_can_explicitly_use_loopback_http(self):
+        from portal import server
+        old_host, old_cookie = APP.host, APP.secure_cookie
+        old_trust, old_demo = APP.trust_loopback_host_for_setup, APP.demo_mode
+        APP.host, APP.secure_cookie = "0.0.0.0", False
+        APP.trust_loopback_host_for_setup, APP.demo_mode = True, False
+        fake_server = unittest.mock.Mock()
+        try:
+            with patch.object(server, "init_db"), \
+                 patch.object(server, "ThreadingHTTPServer", return_value=fake_server), \
+                 patch("portal.sync.recover_interrupted_runs", return_value=0), \
+                 patch.object(platform, "recover_interrupted_jobs", return_value=0):
+                self.assertIs(server.build_server(), fake_server)
+        finally:
+            APP.host, APP.secure_cookie = old_host, old_cookie
+            APP.trust_loopback_host_for_setup, APP.demo_mode = old_trust, old_demo
+
     def test_second_server_cannot_recover_the_live_servers_jobs(self):
         from portal import server
         with patch.object(server,"init_db"), \

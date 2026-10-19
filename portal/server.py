@@ -994,7 +994,15 @@ def build_server() -> ThreadingHTTPServer:
         local_only = ipaddress.ip_address(APP.host).is_loopback
     except ValueError:
         local_only = APP.host.lower().rstrip(".") == "localhost"
-    if not local_only and not APP.secure_cookie:
+    # Docker binds the application to all container interfaces, while the
+    # local Compose file publishes that port only on the host loopback address.
+    # Allow HTTP cookies there only when the operator explicitly opted into the
+    # local-Docker setting. Production deployments must keep secure cookies.
+    local_docker_http = (
+        APP.trust_loopback_host_for_setup
+        and APP.host.strip().lower() in {"0.0.0.0", "::"}
+    )
+    if not local_only and not APP.secure_cookie and not local_docker_http:
         raise RuntimeError(
             "PORTAL_COOKIE_SECURE must be enabled before the portal can listen on a network address. Put the HTTP server behind HTTPS."
         )
