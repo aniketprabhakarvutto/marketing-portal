@@ -3421,6 +3421,7 @@ function switchTab(name, push = true) {
   }
   if (!loaderFor(name)) name = "overview";
   activeTab = name;
+  document.body.classList.toggle("settings-page", name === "settings");
   state.activeSourceId = sourceRouteId(name);
   $("#accountMenuToggle")?.classList.toggle("is-active", name === "settings");
   const homeButton = $("#homeIconButton");

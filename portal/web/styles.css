@@ -135,6 +135,7 @@ nav.tabs button {
 }
 nav.tabs button:hover { background: var(--hover); color: var(--text-primary); }
 nav.tabs button.on { color: var(--text-primary); border-bottom-color: var(--series-1); }
+body.settings-page nav.tabs { display: none; }
 
 main { padding: 20px 24px 64px; max-width: 1400px; margin: 0 auto; }
 section[hidden] { display: none !important; }
