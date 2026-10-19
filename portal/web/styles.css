@@ -2271,7 +2271,11 @@ main > section.is-loading::before {
 .assistant-form textarea{flex:1;min-width:0;max-height:110px;resize:vertical;padding:9px 11px;border:1px solid var(--border);border-radius:9px;background:var(--surface-1);color:inherit;font:inherit;font-size:13px}
 .assistant-form button{white-space:nowrap}.assistant-disclosure{margin:0;padding:0 13px 12px;font-size:11px;line-height:1.35;opacity:.65}
 .assistant-prompts{display:flex;flex-wrap:wrap;gap:6px}.assistant-prompts button{border:1px solid var(--border);border-radius:999px;background:var(--surface-1);color:var(--text-primary);padding:6px 9px;font:inherit;font-size:12px;cursor:pointer}.assistant-prompts button:hover,.assistant-prompts button:focus-visible{background:var(--hover-opaque)}
-@media(max-width:560px){.assistant-launcher{right:12px;bottom:12px}.assistant-panel{right:7px;bottom:65px;width:calc(100vw - 14px);height:min(620px,calc(100dvh - 80px))}}
+@media(max-width:560px){
+  /* The mobile launcher occupies document flow, so it cannot cover fields or table controls. */
+  .assistant-launcher{position:static;display:block;margin:18px 12px 24px auto;min-height:44px;padding:10px 16px}
+  .assistant-panel{right:7px;bottom:7px;width:calc(100vw - 14px);height:min(620px,calc(100dvh - 14px))}
+}
 
 /* Brand tile follows the supplied minimal light and dark logo treatments. */
 .brand-mark {

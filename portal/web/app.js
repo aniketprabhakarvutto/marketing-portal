@@ -3794,16 +3794,66 @@ async function boot() {
     loadPaid();
     if (refreshMetricCampaigns) refreshMetricCampaigns();
   }));
-  $("#googleAdsAccountToggle").addEventListener("click", () => {
-    const toggle = $("#googleAdsAccountToggle");
-    const menu = $("#googleAdsAccountMenu");
-    const opening = menu.hidden;
-    menu.hidden = !opening;
-    toggle.setAttribute("aria-expanded", String(opening));
+  const googleAccountToggle = $("#googleAdsAccountToggle");
+  const googleAccountMenu = $("#googleAdsAccountMenu");
+  const googleAccountOptions = () => $$('[data-google-account]', googleAccountMenu);
+  const openGoogleAccountMenu = (direction = 0) => {
+    if (googleAccountToggle.disabled) return;
+    googleAccountMenu.hidden = false;
+    googleAccountToggle.setAttribute("aria-expanded", "true");
+    const options = googleAccountOptions();
+    const selected = options.findIndex((option) => option.getAttribute("aria-selected") === "true");
+    const index = direction < 0 ? (selected >= 0 ? selected : options.length - 1) : (selected >= 0 ? selected : 0);
+    options[index]?.focus();
+  };
+  googleAccountToggle.addEventListener("click", () => {
+    if (googleAccountMenu.hidden) {
+      googleAccountMenu.hidden = false;
+      googleAccountToggle.setAttribute("aria-expanded", "true");
+    } else {
+      closeGoogleAccountMenu();
+    }
   });
-  $("#googleAdsAccountMenu").addEventListener("click", (ev) => {
+  googleAccountToggle.addEventListener("keydown", (ev) => {
+    if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+      ev.preventDefault();
+      openGoogleAccountMenu(ev.key === "ArrowUp" ? -1 : 1);
+    }
+    if (ev.key === "Escape") closeGoogleAccountMenu();
+  });
+  googleAccountMenu.addEventListener("click", (ev) => {
     const option = ev.target.closest("[data-google-account]");
-    if (option) selectGoogleAccount(option.dataset.googleAccount);
+    if (option) {
+      selectGoogleAccount(option.dataset.googleAccount);
+      googleAccountToggle.focus();
+    }
+  });
+  googleAccountMenu.addEventListener("keydown", (ev) => {
+    const options = googleAccountOptions();
+    const index = options.indexOf(document.activeElement);
+    if (ev.key === "Escape") {
+      ev.preventDefault();
+      closeGoogleAccountMenu();
+      googleAccountToggle.focus();
+      return;
+    }
+    if (ev.key === "Enter" || ev.key === " ") {
+      ev.preventDefault();
+      const option = options[index];
+      if (option) {
+        selectGoogleAccount(option.dataset.googleAccount);
+        googleAccountToggle.focus();
+      }
+      return;
+    }
+    let next = index;
+    if (ev.key === "ArrowDown") next = Math.min(options.length - 1, index + 1);
+    else if (ev.key === "ArrowUp") next = Math.max(0, index - 1);
+    else if (ev.key === "Home") next = 0;
+    else if (ev.key === "End") next = options.length - 1;
+    else return;
+    ev.preventDefault();
+    options[next]?.focus();
   });
   $$("[data-funnel]").forEach((b) => b.addEventListener("click", () => {
     $$("[data-funnel]").forEach((x) => { x.classList.remove("on"); x.setAttribute("aria-pressed", "false"); });
