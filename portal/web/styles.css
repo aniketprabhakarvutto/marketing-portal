@@ -800,11 +800,12 @@ body.drawer-open { overflow: hidden; }
   border-color: var(--series-1);
 }
 .campaign-filters {
-  display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; margin: 0 0 12px;
+  display: grid; grid-template-columns: max-content minmax(220px, 300px) max-content max-content;
+  align-items: center; gap: 8px 14px; margin: 0 0 12px;
 }
-.filter-group { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+.filter-group { display: flex; align-items: center; gap: 4px; min-width: 0; white-space: nowrap; }
 .filter-group > span { margin-right: 5px; }
-.filter-group button { min-height: 32px; padding: 4px 8px; font-size: 12px; }
+.filter-group button { min-height: 32px; padding: 4px 9px; border-radius: 8px; font-size: 12px; }
 .account-filter { display: flex; align-items: center; min-width: 0; gap: 7px; white-space: nowrap; }
 .account-filter > span { flex: 0 0 auto; color: var(--text-secondary); font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 .account-dropdown { position: relative; min-width: 220px; }
@@ -818,7 +819,7 @@ body.drawer-open { overflow: hidden; }
 .account-menu button { display: block; width: 100%; min-height: 32px; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--text-primary); font: inherit; font-size: 12px; text-align: left; }
 .account-menu button:hover, .account-menu button:focus-visible { background: var(--primary-soft); color: var(--series-1); outline: none; }
 .account-menu button[aria-selected="true"] { background: color-mix(in srgb, var(--series-1) 10%, var(--surface-1)); color: var(--series-1); font-weight: 700; }
-.result-count { margin-left: auto; color: var(--text-muted); font-size: 12px; white-space: nowrap; }
+.result-count { justify-self: end; padding: 6px 9px; border: 1px solid var(--grid); border-radius: 999px; background: var(--surface-1); color: var(--text-secondary); font-size: 11px; font-variant-numeric: tabular-nums; font-weight: 650; white-space: nowrap; }
 .campaign-tag {
   display: inline-flex; align-items: center; max-width: 100%; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; padding: 2px 7px; border-radius: 999px;
@@ -1637,6 +1638,9 @@ main > section.is-loading::before {
   .tiles { grid-template-columns: repeat(3, minmax(155px, 1fr)); }
   .brand-lockup { min-width: 210px; }
   .date-range-toggle { min-width: 220px; }
+  .campaign-filters { grid-template-columns: minmax(0, 1fr) max-content max-content; }
+  .campaign-filters > .filter-group:first-child { grid-column: 1 / -1; }
+  .result-count { margin-left: 0; }
 }
 
 @media (max-width: 900px) {
@@ -1703,7 +1707,8 @@ main > section.is-loading::before {
   .sheetfoot button { flex: 1 1 140px; }
   .campaign-toolbar > button, .column-picker > button { min-height: 44px; }
   .campaign-search input, .table-search input, .field input, .field textarea { min-height: 44px; font-size: 16px; }
-  .campaign-filters { align-items: flex-start; gap: 10px; }
+  .campaign-filters { grid-template-columns: 1fr; align-items: flex-start; gap: 10px; }
+  .campaign-filters > .filter-group:first-child { grid-column: auto; }
   .filter-group { width: 100%; flex-wrap: wrap; }
   .filter-group > span { width: 70px; }
   .filter-group button { min-height: 40px; }
@@ -1711,6 +1716,7 @@ main > section.is-loading::before {
   .account-filter > span { width: auto; }
   .account-dropdown { min-width: 0; width: 100%; }
   .account-select { min-height: 40px; font-size: 16px; }
+  .result-count { justify-self: start; margin-left: 0; }
   .row-height-control { width: 100%; grid-template-columns: 1fr auto; }
   .row-height-control input { width: 100%; }
   .frow { grid-template-columns: 92px minmax(90px, 1fr); gap: 8px; }
