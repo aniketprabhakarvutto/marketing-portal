@@ -1562,8 +1562,10 @@ function googleAccountKey(row) {
 }
 
 function renderGoogleAccountOptions() {
-  const select = $("#googleAdsAccount");
-  if (!select) return;
+  const toggle = $("#googleAdsAccountToggle");
+  const labelNode = $("#googleAdsAccountLabel");
+  const menu = $("#googleAdsAccountMenu");
+  if (!toggle || !labelNode || !menu) return;
   const accounts = new Map();
   state.campaignRows.filter((row) => row.source === "google_ads").forEach((row) => {
     const key = googleAccountKey(row);
@@ -1573,13 +1575,37 @@ function renderGoogleAccountOptions() {
   });
   const choices = [...accounts.entries()].sort((a, b) => a[1].localeCompare(b[1]));
   if (state.campaignGoogleAccount && !accounts.has(state.campaignGoogleAccount)) state.campaignGoogleAccount = "";
-  select.innerHTML = ["<option value=\"\">All accounts</option>", ...choices.map(([key, label]) =>
-    `<option value="${esc(key)}">${esc(label)}</option>`)].join("");
-  select.value = state.campaignGoogleAccount;
-  select.disabled = state.campaignSrc === "meta_ads" || !choices.length;
-  select.title = select.disabled
+  labelNode.textContent = accounts.get(state.campaignGoogleAccount) || "All accounts";
+  menu.innerHTML = [["", "All accounts"], ...choices].map(([key, label]) =>
+    `<button type="button" role="option" aria-selected="${key === state.campaignGoogleAccount}" data-google-account="${esc(key)}">${esc(label)}</button>`).join("");
+  toggle.disabled = state.campaignSrc === "meta_ads" || !choices.length;
+  toggle.title = toggle.disabled
     ? (state.campaignSrc === "meta_ads" ? "Select Google Ads to choose an account" : "No Google Ads accounts in this date range")
     : "Filter Google Ads campaigns by account";
+}
+
+function closeGoogleAccountMenu() {
+  const toggle = $("#googleAdsAccountToggle");
+  const menu = $("#googleAdsAccountMenu");
+  if (!toggle || !menu) return;
+  menu.hidden = true;
+  toggle.setAttribute("aria-expanded", "false");
+}
+
+function selectGoogleAccount(value) {
+  state.campaignGoogleAccount = value;
+  closeGoogleAccountMenu();
+  if (state.campaignGoogleAccount && state.campaignSrc !== "google_ads") {
+    const google = $("[data-src=\"google_ads\"]");
+    $$("[data-src]").forEach((x) => { x.classList.remove("on"); x.setAttribute("aria-pressed", "false"); });
+    google.classList.add("on");
+    google.setAttribute("aria-pressed", "true");
+    state.campaignSrc = "google_ads";
+    loadPaid();
+    if (refreshMetricCampaigns) refreshMetricCampaigns();
+    return;
+  }
+  renderPaid();
 }
 
 const PAID_COLUMNS = [
@@ -3767,19 +3793,16 @@ async function boot() {
     loadPaid();
     if (refreshMetricCampaigns) refreshMetricCampaigns();
   }));
-  $("#googleAdsAccount").addEventListener("change", (ev) => {
-    state.campaignGoogleAccount = ev.target.value;
-    if (state.campaignGoogleAccount && state.campaignSrc !== "google_ads") {
-      const google = $("[data-src=\"google_ads\"]");
-      $$("[data-src]").forEach((x) => { x.classList.remove("on"); x.setAttribute("aria-pressed", "false"); });
-      google.classList.add("on");
-      google.setAttribute("aria-pressed", "true");
-      state.campaignSrc = "google_ads";
-      loadPaid();
-      if (refreshMetricCampaigns) refreshMetricCampaigns();
-      return;
-    }
-    renderPaid();
+  $("#googleAdsAccountToggle").addEventListener("click", () => {
+    const toggle = $("#googleAdsAccountToggle");
+    const menu = $("#googleAdsAccountMenu");
+    const opening = menu.hidden;
+    menu.hidden = !opening;
+    toggle.setAttribute("aria-expanded", String(opening));
+  });
+  $("#googleAdsAccountMenu").addEventListener("click", (ev) => {
+    const option = ev.target.closest("[data-google-account]");
+    if (option) selectGoogleAccount(option.dataset.googleAccount);
   });
   $$("[data-funnel]").forEach((b) => b.addEventListener("click", () => {
     $$("[data-funnel]").forEach((x) => { x.classList.remove("on"); x.setAttribute("aria-pressed", "false"); });
@@ -3812,6 +3835,7 @@ async function boot() {
   });
   document.addEventListener("click", (ev) => {
     if (!ev.target.closest(".date-range-wrap")) closeDateRange();
+    if (!ev.target.closest(".account-filter")) closeGoogleAccountMenu();
   });
   $("#refreshPortal").addEventListener("click", () => refreshPortal(true));
   $("#ahrefsReconnect").addEventListener("click", async () => {
