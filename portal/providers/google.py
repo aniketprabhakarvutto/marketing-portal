@@ -380,7 +380,9 @@ class SearchConsoleProvider(Provider):
     def fetch(self, conn: Connection, start: date, end: date) -> list[dict]:
         # Search Console data settles two to three days late; asking for today
         # just returns nothing.
-        end = min(end, date.today() - timedelta(days=2))
+        from ..api import portal_today
+
+        end = min(end, portal_today() - timedelta(days=2))
         rows: list[dict] = []
         for site in conn.list_of("site_urls"):
             day = start

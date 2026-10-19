@@ -1433,7 +1433,7 @@ function table(node, cols, rows, empty = "No data in this range") {
     return;
   }
   const colgroup = prepared.map((c) => `<col data-column="${esc(c.id)}">`).join("");
-  const head = prepared.map((c) => `<th class="${c.num ? "num" : ""}" data-column="${esc(c.id)}">${c.label}</th>`).join("");
+  const head = prepared.map((c) => `<th class="${c.num ? "num" : ""}" data-column="${esc(c.id)}">${esc(c.label)}</th>`).join("");
   const body = visibleRows.map((r) =>
     `<tr>${prepared.map((c) => `<td class="${c.num ? "num" : c.wide ? "name" : ""}" data-column="${esc(c.id)}">${c.get(r)}</td>`).join("")}</tr>`
   ).join("");
@@ -1531,7 +1531,7 @@ async function loadOverview() {
     const color = PAID_PLATFORM_META[r.channel]?.color
       || (r.channel === "google_ads" ? cssVar("--series-1")
         : r.channel === "meta_ads" ? cssVar("--series-2") : cssVar("--series-3"));
-    return `<span class="chip"><i style="background:${color}"></i>${nice}</span>`;
+    return `<span class="chip"><i style="background:${color}"></i>${esc(nice)}</span>`;
   };
   table($("#tblChannels"), [
     { label: "Channel", get: label },
@@ -1566,7 +1566,7 @@ const PAID_COLUMNS = [
   },
   {
     id: "platform", label: "Platform", width: 130, get: (r) =>
-      PAID_PLATFORM_META[r.source]?.label || r.source || "—",
+      esc(PAID_PLATFORM_META[r.source]?.label || r.source || "—"),
   },
   { id: "account_id", label: "Account ID", width: 145, get: (r) => esc(r.account_id || "—") },
   { id: "account", label: "Account", width: 170, get: (r) => esc(r.account || "—") },
@@ -1584,7 +1584,7 @@ const PAID_COLUMNS = [
         : `<span class="campaign-tag other">Other</span>`;
     },
   },
-  { id: "type", label: "Type", width: 140, get: (r) => r.channel || "—" },
+  { id: "type", label: "Type", width: 140, get: (r) => esc(r.channel || "—") },
   { id: "spend", label: "Spend", width: 130, num: true, get: (r) => moneyInCurrency(r.spend, r.currency) },
   { id: "currency", label: "Currency", width: 90, get: (r) => esc(r.currency || "Unknown") },
   { id: "impressions", label: "Impr.", width: 100, num: true, get: (r) => num(r.impressions) },
@@ -1863,7 +1863,7 @@ async function loadPaid(notify = false) {
 async function loadWeb() {
   const rows = await api(`/api/web?${qs()}&dim=${state.webDim}`);
   table($("#tblWeb"), [
-    { label: state.webDim, wide: true, get: (r) => r.key || "(not set)" },
+    { label: state.webDim, wide: true, get: (r) => esc(r.key || "(not set)") },
     { label: "Sessions", num: true, get: (r) => num(r.sessions) },
     { label: "Users", num: true, get: (r) => num(r.users) },
     { label: "Engaged", num: true, get: (r) => num(r.engaged_sessions) },
@@ -1902,7 +1902,7 @@ async function loadSearch() {
     ahrefsKpis.innerHTML = `<div class="empty compact">Connect Ahrefs to load SEO metrics. You will need an Ahrefs API key.</div>`;
   }
   table($("#tblSearch"), [
-    { label: state.searchDim, wide: true, get: (r) => r.key || "—" },
+    { label: state.searchDim, wide: true, get: (r) => esc(r.key || "—") },
     { label: "Clicks", num: true, get: (r) => num(r.clicks) },
     { label: "Impressions", num: true, get: (r) => num(r.impressions) },
     { label: "CTR", num: true, get: (r) => pct(r.ctr) },
@@ -1949,30 +1949,30 @@ async function loadCrm() {
     ? `Detailed Superleap stage data through ${d.funnel_data_to}.`
     : "Detailed funnel-stage data is not available yet.";
   table($("#tblCampaignLeads"), [
-    { label: "Lead side", get: (r) => ({ demand: "Demand", supply: "Supply", buy: "Demand", sell: "Supply" }[r.lead_type] || r.lead_type) },
-    { label: "Channel", get: (r) => r.channel || "—" },
+    { label: "Lead side", get: (r) => esc(({ demand: "Demand", supply: "Supply", buy: "Demand", sell: "Supply" }[r.lead_type] || r.lead_type || "—")) },
+    { label: "Channel", get: (r) => esc(r.channel || "—") },
     { label: "Source", get: (r) => esc(r.source || "Unknown source") },
     { label: "Campaigns", num: true, get: (r) => num(r.campaigns) },
     { label: "Leads", num: true, get: (r) => num(r.leads) },
-    { label: "Updated", get: (r) => r.data_to || "—" },
+    { label: "Updated", get: (r) => esc(r.data_to || "—") },
   ], d.campaign_leads || [], "No campaign lead data in this range.");
   table($("#tblSource"), [
-    { label: "Source", get: (r) => r.key },
-    { label: "Channel", get: (r) => r.channel || "—" },
+    { label: "Source", get: (r) => esc(r.key || "—") },
+    { label: "Channel", get: (r) => esc(r.channel || "—") },
     { label: "Leads", num: true, get: (r) => num(r.leads) },
     { label: "Won", num: true, get: (r) => num(r.sales) },
     { label: "Conv.", num: true, get: conv },
   ], d.by_source || [], "No CRM data yet.");
 
   table($("#tblCity"), [
-    { label: "City", get: (r) => r.key },
+    { label: "City", get: (r) => esc(r.key || "—") },
     { label: "Leads", num: true, get: (r) => num(r.leads) },
     { label: "Won", num: true, get: (r) => num(r.sales) },
     { label: "Conv.", num: true, get: conv },
   ], d.by_city || [], "No CRM data yet.");
 
   table($("#tblType"), [
-    { label: "Lead type", get: (r) => ({ buy: "Buy (demand)", sell: "Sell (supply)" }[r.key] || r.key) },
+    { label: "Lead type", get: (r) => esc(({ buy: "Buy (demand)", sell: "Sell (supply)" }[r.key] || r.key || "—")) },
     { label: "Leads", num: true, get: (r) => num(r.leads) },
     { label: "Won", num: true, get: (r) => num(r.sales) },
     { label: "Conv.", num: true, get: conv },
@@ -2501,7 +2501,7 @@ async function loadConnections() {
   }));
 
   table($("#tblSyncs"), [
-    { label: "Platform", get: (r) => r.label },
+    { label: "Platform", get: (r) => esc(r.label || "—") },
     {
       label: "Status", get: (r) => {
         const cls = r.status === "ok" ? "ok" : ["error", "empty"].includes(r.status) ? "err" : "idle";
@@ -3415,7 +3415,9 @@ function setupAssistant() {
     try {
       const availability = await api("/api/assistant/status");
       status.textContent = availability.configured ?
-        (availability.mode === "local_model" ? `Local AI · ${availability.model}` : "Basic answers · model offline") : "Unavailable";
+        (availability.mode === "openai" ? `ChatGPT · ${availability.model}` :
+          availability.mode === "local_model" ? `Local AI · ${availability.model}` :
+          "Basic answers · model offline") : "Unavailable";
       send.disabled = !availability.configured;
       if (!availability.configured && !messages.querySelector(".assistant-message")) addMessage("Portal reports are unavailable right now.", "error");
     } catch (error) { status.textContent = "Unavailable"; send.disabled = true; addMessage(error.message, "error"); }
@@ -3445,7 +3447,8 @@ function setupAssistant() {
       evidence.textContent = `${result.range.start} to ${result.range.end}${result.date_basis === "question" ? " · date from your question" : " · dashboard dates"} · ${result.model === "portal-basic" ? "Report: " : "Reports supplied: "}${result.reports_used.join(", ")}`;
       messages.append(evidence);
       messages.scrollTop = messages.scrollHeight;
-      status.textContent = result.model === "portal-basic" ? "Portal report answer" : `Local AI · ${result.model}`;
+      status.textContent = result.model === "portal-basic" ? "Portal report answer" :
+        result.provider === "openai" ? `ChatGPT · ${result.model}` : `Local AI · ${result.model}`;
     } catch (error) { addMessage(error.message, "error"); status.textContent = "Could not answer"; }
     finally { send.disabled = false; question.focus(); }
   });

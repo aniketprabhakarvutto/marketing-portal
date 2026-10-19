@@ -114,6 +114,21 @@ class OAuthRefreshRaceTests(unittest.TestCase):
             self.assertEqual(oauth.access_token(rotated, self.spec), "new-refresh")
         self.assertEqual(post.call_count, 2)
 
+    def test_missing_access_token_does_not_expose_provider_payload(self) -> None:
+        connection = Connection(
+            1, "ga4", "Analytics", {"client_id": "test-client"},
+            {"client_secret": "test-secret", "refresh_token": "test-refresh"},
+        )
+        with patch("portal.oauth.post", return_value={"refresh_token": "provider-secret"}):
+            with self.assertRaisesRegex(RuntimeError, r"^Refresh returned no access token\.$") as error:
+                oauth.access_token(connection, self.spec)
+        self.assertNotIn("provider-secret", str(error.exception))
+
+        with patch("portal.oauth.post", return_value={"refresh_token": "exchange-secret"}):
+            with self.assertRaisesRegex(RuntimeError, r"^Token exchange returned no access token\.$") as error:
+                oauth.exchange_code(connection, self.spec, "one-time-code")
+        self.assertNotIn("exchange-secret", str(error.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

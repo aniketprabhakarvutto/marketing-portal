@@ -330,6 +330,26 @@ class AuthBoundaryTests(unittest.TestCase):
         handler.headers = {"CF-Connecting-IP": "203.0.113.12"}
         self.assertEqual(handler._login_remote_address(), "10.0.0.9")
 
+    def test_local_setup_can_explicitly_trust_docker_loopback_forwarding(self) -> None:
+        handler = server.Handler.__new__(server.Handler)
+        handler.client_address = ("192.168.65.1", 12345)
+        handler.headers = {"Host": "127.0.0.1:8788"}
+        original = APP.trust_loopback_host_for_setup
+        try:
+            APP.trust_loopback_host_for_setup = False
+            self.assertFalse(handler._trusted_local_request())
+            APP.trust_loopback_host_for_setup = True
+            self.assertTrue(handler._trusted_local_request())
+            handler.headers = {"Host": "portal.example.com"}
+            self.assertFalse(handler._trusted_local_request())
+            handler.headers = {
+                "Host": "127.0.0.1:8788",
+                "X-Forwarded-For": "127.0.0.1",
+            }
+            self.assertFalse(handler._trusted_local_request())
+        finally:
+            APP.trust_loopback_host_for_setup = original
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -73,6 +73,10 @@ class AppCfg:
     oauth_redirect_uri: str = os.getenv("PORTAL_OAUTH_REDIRECT_URI", "").strip()
     secure_cookie: bool = _b("PORTAL_COOKIE_SECURE", True)
     mcp_token: str = os.getenv("PORTAL_MCP_TOKEN", "").strip()
+    # Optional hosted model for the embedded Ask AI panel. Keep the key only in
+    # the server environment; it is never returned by an API or sent to the UI.
+    openai_api_key: str = os.getenv("OPENAI_API_KEY", "").strip()
+    openai_model: str = os.getenv("PORTAL_OPENAI_MODEL", "gpt-6-luna").strip() or "gpt-6-luna"
     # Local macOS installs use Keychain. Linux server deployments use an
     # application-held Fernet key to encrypt connector credentials at rest.
     secret_store_backend: str = os.getenv("PORTAL_SECRET_STORE", "keychain").strip().lower()
@@ -80,6 +84,10 @@ class AppCfg:
     # Forwarded client IPs are ignored unless an operator explicitly trusts a
     # proxy that sanitizes them. Empty by default to avoid trusting local apps.
     trusted_proxy_ips: tuple[str, ...] = tuple(_l("PORTAL_TRUSTED_PROXY_IPS"))
+    # Docker port forwarding changes the socket peer to a bridge address. Local
+    # development may trust a loopback Host header for first-admin setup, but
+    # production and public proxy deployments must leave this disabled.
+    trust_loopback_host_for_setup: bool = _b("PORTAL_TRUST_LOOPBACK_HOST_FOR_SETUP", False)
     connector_hosts: tuple[str, ...] = tuple(_l("PORTAL_CONNECTOR_HOSTS"))
     db_path: str = str(
         Path(os.getenv("PORTAL_DB_PATH", "").strip()).expanduser()

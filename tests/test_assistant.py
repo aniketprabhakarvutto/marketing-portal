@@ -16,8 +16,11 @@ class AssistantTests(unittest.TestCase):
         self.range_patch.start()
         self.model_patch = patch.object(assistant, "_model_available", return_value=False)
         self.model_patch.start()
+        self.openai_patch = patch.object(assistant, "_openai_available", return_value=False)
+        self.openai_patch.start()
 
     def tearDown(self):
+        self.openai_patch.stop()
         self.range_patch.stop()
         self.model_patch.stop()
 
@@ -144,6 +147,53 @@ class AssistantTests(unittest.TestCase):
              patch.object(assistant, "_ask_local_model", side_effect=OSError("offline")):
             result = assistant.ask(10006, "What can you do?", None, None)
         self.assertEqual(result["model"], "portal-basic")
+        self.assertIn("selected dates", result["answer"])
+
+    def test_openai_status_discloses_external_transfer(self):
+        with patch.object(assistant, "_openai_available", return_value=True), \
+             patch.object(assistant.APP, "openai_model", "gpt-6-luna"):
+            result = assistant.status()
+        self.assertEqual(result["mode"], "openai")
+        self.assertEqual(result["provider"], "OpenAI")
+        self.assertEqual(result["model"], "gpt-6-luna")
+        self.assertTrue(result["external_transfer"])
+
+    def test_openai_request_uses_responses_api_and_does_not_store_response(self):
+        supplied = {"selected_range": {"start": "2026-09-01", "end": "2026-09-07"},
+                    "overview_current": {"spend": 100}}
+        response = io.BytesIO(json.dumps({"output": [{
+            "type": "message", "content": [{"type": "output_text", "text": "Spend was INR 100."}]
+        }]}).encode())
+        with patch.object(assistant, "_report_context", return_value=(supplied, ["Overview"])), \
+             patch.object(assistant.APP, "openai_api_key", "test-secret"), \
+             patch.object(assistant.APP, "openai_model", "gpt-6-luna"), \
+             patch.object(assistant._openai_http, "open", return_value=response) as send:
+            answer, reports = assistant._ask_openai("What changed?", "2026-09-01", "2026-09-07")
+        request = send.call_args.args[0]
+        payload = json.loads(request.data)
+        self.assertEqual(request.full_url, "https://api.openai.com/v1/responses")
+        self.assertEqual(request.get_header("Authorization"), "Bearer test-secret")
+        self.assertEqual(payload["model"], "gpt-6-luna")
+        self.assertFalse(payload["store"])
+        self.assertIn("100", payload["input"])
+        self.assertEqual(reports, ["Overview"])
+        self.assertEqual(answer, "Spend was INR 100.")
+
+    def test_openai_provider_is_selected_for_broad_questions(self):
+        with patch.object(assistant, "_openai_available", return_value=True), \
+             patch.object(assistant, "_ask_openai", return_value=("Use Connections.", ["Connections"])), \
+             patch.object(assistant.APP, "openai_model", "gpt-6-luna"):
+            result = assistant.ask(10050, "Explain how connectors work", None, None)
+        self.assertEqual(result["provider"], "openai")
+        self.assertEqual(result["model"], "gpt-6-luna")
+        self.assertEqual(result["reports_used"], ["Connections"])
+
+    def test_openai_failure_falls_back_to_basic_answers(self):
+        with patch.object(assistant, "_openai_available", return_value=True), \
+             patch.object(assistant, "_ask_openai", side_effect=OSError("offline")):
+            result = assistant.ask(10051, "What can you do?", None, None)
+        self.assertEqual(result["model"], "portal-basic")
+        self.assertEqual(result["provider"], "portal")
         self.assertIn("selected dates", result["answer"])
 
     def test_causal_metric_question_does_not_invent_reason(self):

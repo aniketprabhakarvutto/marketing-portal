@@ -94,8 +94,11 @@ def run_connection(conn: Connection, start: date, end: date) -> dict:
 
 
 def run_all(lookback_days: int | None = None, connection_id: int | None = None) -> list[dict]:
-    end = date.today()
-    start = end - timedelta(days=lookback_days or APP.sync_lookback_days)
+    from .api import portal_today
+
+    end = portal_today()
+    days = max(1, APP.sync_lookback_days if lookback_days is None else lookback_days)
+    start = end - timedelta(days=days - 1)
     if connection_id is not None:
         conn = conns.get(connection_id)
         return [run_connection(conn, start, end)] if conn else []

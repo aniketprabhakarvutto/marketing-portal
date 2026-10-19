@@ -377,15 +377,20 @@ that user's computer account.
 
 ### Embedded AI assistant
 
-The **Ask AI** button is available across portal tabs. When a local Ollama
-runtime has the `qwen3:1.7b` model installed, the portal sends a bounded,
-read-only summary of the selected reports to that model at
-`127.0.0.1:11434`. Answers show the date range and reports used. No paid
-model key is required and no report data is sent to a hosted AI provider.
-The model cannot change data or settings. Model answers can still be wrong,
-so verify important figures against the cited reports. If Ollama is stopped
-or the model is missing, the existing basic report answers remain available.
-Set `PORTAL_LOCAL_AI_MODEL` to another installed local Ollama model if needed.
+The **Ask AI** button is available across portal tabs. Set `OPENAI_API_KEY` on
+the server to use the OpenAI Responses API; `PORTAL_OPENAI_MODEL` defaults to
+`gpt-6-luna`. Exact metric and campaign questions still use the portal's
+deterministic report calculations. Broader questions send a bounded, read-only
+summary of the selected reports to OpenAI with response storage disabled.
+The API key never reaches the browser. OpenAI API usage is billed separately
+from a ChatGPT subscription.
+
+Without an OpenAI API key, the portal can use a local Ollama runtime with the
+`qwen3:1.7b` model at `127.0.0.1:11434`. The model cannot change data or
+settings. Model answers can still be wrong, so verify important figures against
+the cited reports. If both hosted and local models are unavailable, the basic
+report answers remain available. Set `PORTAL_LOCAL_AI_MODEL` to another
+installed local Ollama model if needed.
 On this Mac, the runtime and model are stored under `.local-ai` in the portal
 folder. `./run.sh` starts the local runtime automatically when it is present.
 The model needs roughly 1.4 GB of disk space and additional memory while in use.

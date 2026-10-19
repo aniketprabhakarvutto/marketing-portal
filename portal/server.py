@@ -61,9 +61,10 @@ def _int(params: dict, key: str, default: int) -> int:
 
 
 def _window(params: dict) -> tuple[date, date]:
-    end = date.fromisoformat(_p(params, "end") or date.today().isoformat())
+    end = date.fromisoformat(_p(params, "end") or api.portal_today().isoformat())
+    lookback_days = max(1, APP.sync_lookback_days)
     start = date.fromisoformat(
-        _p(params, "start") or (end - timedelta(days=APP.sync_lookback_days)).isoformat()
+        _p(params, "start") or (end - timedelta(days=lookback_days - 1)).isoformat()
     )
     return start, end
 
@@ -164,7 +165,7 @@ def test_connection(params: dict, body: dict) -> dict:
     custom_test = getattr(provider, "test_connection", None)
     if callable(custom_test):
         return {"ok": True, "rows": 0, "message": custom_test(candidate)}
-    today = date.today()
+    today = api.portal_today()
     rows = provider.fetch(candidate, today - timedelta(days=2), today)
     return {"ok": True, "rows": len(rows),
             "message": f"Connection verified. {len(rows)} recent row(s) returned."}
@@ -367,7 +368,12 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError("Request body must contain valid JSON.") from None
 
     def _trusted_local_request(self) -> bool:
-        """Allow first-admin setup only for direct loopback requests on this Mac."""
+        """Allow first-admin setup only through a direct loopback address.
+
+        Docker Desktop replaces the socket peer with its bridge gateway. The
+        local-only Compose profile can explicitly trust that translation, but
+        the request must still use a loopback Host header and no proxy headers.
+        """
         if self._proxied_request():
             return False
         client = self.client_address[0]
@@ -383,11 +389,9 @@ class Handler(BaseHTTPRequestHandler):
                 return False
             return address.is_loopback
 
-        return is_loopback(client) and is_loopback(host)
-
-    def _local_client(self) -> bool:
-        if self._proxied_request():
+        if not is_loopback(host):
             return False
+        return is_loopback(client) or APP.trust_loopback_host_for_setup
 
     def _login_remote_address(self) -> str:
         """Use one validated forwarded IP only from an explicitly trusted proxy.
@@ -432,10 +436,6 @@ class Handler(BaseHTTPRequestHandler):
         if forwarded:
             return next(iter(forwarded.values()))
         return peer_address
-        try:
-            return ipaddress.ip_address(self.client_address[0]).is_loopback
-        except ValueError:
-            return False
 
     def _proxied_request(self) -> bool:
         return any(self.headers.get(name) for name in (

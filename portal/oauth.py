@@ -105,7 +105,7 @@ def exchange_code(conn: Connection, spec: OAuth2, code: str) -> dict[str, Any]:
     })
     payload = post(spec.token_url, data=body, headers=headers, timeout=30)
     if not payload.get("access_token"):
-        raise RuntimeError(f"Token exchange returned no access token: {payload}")
+        raise RuntimeError("Token exchange returned no access token.")
     return payload
 
 
@@ -142,7 +142,7 @@ def access_token(conn: Connection, spec: OAuth2) -> str:
 
     token = payload.get("access_token", "")
     if not token:
-        raise RuntimeError(f"Refresh returned no access token: {payload}")
+        raise RuntimeError("Refresh returned no access token.")
     with _lock:
         if _generations.get(conn.id, 0) == generation:
             _tokens[conn.id] = (token, time.time() + int(payload.get("expires_in", 3600)) - 300, binding)

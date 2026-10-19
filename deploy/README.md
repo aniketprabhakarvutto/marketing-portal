@@ -3,6 +3,37 @@
 This deployment path is separate from the Mac launcher. It leaves `run.sh`,
 the local database, macOS Keychain, and the local AI runtime untouched.
 
+## Local Docker verification
+
+The local container uses its own database volume and port `8788`, so it does
+not replace the normal macOS database or conflict with the portal on port
+`8787`.
+
+```bash
+cp deploy/local.env.example deploy/local.env
+# Set a generated PORTAL_SECRET_ENCRYPTION_KEY in deploy/local.env.
+docker compose -f docker-compose.local.yml up -d --build
+curl -fsS http://127.0.0.1:8788/healthz
+```
+
+Open `http://127.0.0.1:8788`. The first launch creates a new administrator for
+the isolated container. The local profile explicitly permits first-admin setup
+through Docker Desktop's loopback port. The production profile keeps that
+exception disabled. Stop it without deleting its data with:
+
+```bash
+docker compose -f docker-compose.local.yml down
+```
+
+The scheduler can create verified database backups in `./backups` on the Mac.
+That folder is outside the container and ignored by Git. Copy its contents to
+separate storage regularly. Delete the isolated local database only when it is
+no longer needed:
+
+```bash
+docker compose -f docker-compose.local.yml down -v
+```
+
 ## What this deploys
 
 - the existing Python portal and its scheduler in one Docker container;
@@ -26,7 +57,7 @@ Clone the private repository and prepare the persistent data directory:
 ```bash
 git clone https://github.com/aniketprabhakarvutto/marketing-portal.git
 cd marketing-portal
-sudo install -d -m 700 -o 10001 -g 10001 /srv/vortex-veri/data
+sudo install -d -m 700 -o 10001 -g 10001 /srv/vortex-veri/data /srv/vortex-veri/backups
 cp deploy/production.env.example deploy/production.env
 chmod 600 deploy/production.env
 ```
@@ -59,4 +90,6 @@ docker compose -f docker-compose.production.yml up -d --build
 ```
 
 This replaces the application container while retaining the server database in
-`/srv/vortex-veri/data`. Back up that directory before upgrades.
+`/srv/vortex-veri/data`. Scheduled database backups are stored separately in
+`/srv/vortex-veri/backups`. Copy both folders to storage outside the server
+before upgrades.

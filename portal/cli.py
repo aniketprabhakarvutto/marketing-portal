@@ -19,6 +19,7 @@ import sys
 from datetime import date, timedelta
 from pathlib import Path
 
+from . import api
 from . import connections as conns
 from .config import APP
 from .db import CONFLICT_KEYS, connect, init_db, query, reset_all, scalar, upsert
@@ -141,9 +142,10 @@ def cmd_sync(args) -> int:
     from .sync import run_connection
 
     init_db()
-    end = date.fromisoformat(args.end) if args.end else date.today()
+    end = date.fromisoformat(args.end) if args.end else api.portal_today()
+    days = max(1, APP.sync_lookback_days if args.days is None else args.days)
     start = (date.fromisoformat(args.start) if args.start
-             else end - timedelta(days=args.days or APP.sync_lookback_days))
+             else end - timedelta(days=days - 1))
 
     targets = ([conns.get(args.connection)] if args.connection
                else conns.all_connections(enabled_only=True))

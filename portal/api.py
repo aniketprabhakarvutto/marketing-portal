@@ -1136,7 +1136,7 @@ def search(start: str | None, end: str | None, dim: str = "query",
 
 def ahrefs(end: str | None = None) -> dict[str, Any]:
     """Latest Ahrefs snapshot on or before the selected reporting date."""
-    report_end = end or date.today().isoformat()
+    report_end = end or portal_today().isoformat()
     rows = query(
         "SELECT * FROM ahrefs_metrics WHERE date <= ? ORDER BY date DESC, id DESC LIMIT 1",
         (report_end,),

@@ -72,6 +72,15 @@ class SyncFeedbackTests(unittest.TestCase):
         self.assertEqual(runs[0]["status"], "empty")
         self.assertEqual(runs[0]["rows"], 0)
 
+    def test_run_all_uses_portal_date_and_inclusive_day_count(self) -> None:
+        with patch("portal.api.portal_today", return_value=date(2026, 10, 19)), \
+             patch.object(self.provider, "fetch", wraps=self.provider.fetch) as fetch:
+            sync.run_all(lookback_days=3, connection_id=self.connection.id)
+
+        fetch.assert_called_once_with(
+            self.connection, date(2026, 10, 17), date(2026, 10, 19)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

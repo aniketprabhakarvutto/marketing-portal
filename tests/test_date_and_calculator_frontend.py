@@ -181,6 +181,28 @@ const matched = values(presets.cac,{spend:100,crm_sales:0,crm_leads_source:'Supe
 assert.strictEqual(matched[1],0,'matched CRM sales can be zero');
 """)
 
+    def test_paid_table_escapes_connector_controlled_labels(self) -> None:
+        self.run_node(r"""
+const assert = require('assert');
+const fs = require('fs');
+const vm = require('vm');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+const start = source.indexOf('const PAID_COLUMNS = [');
+const end = source.indexOf('const METRIC_FIELDS = [',start);
+const escapeHtml = (value) => String(value).replaceAll('&','&amp;').replaceAll('<','&lt;')
+  .replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
+const context = vm.createContext({
+  PAID_PLATFORM_META:{},cssVar:()=>'',esc:escapeHtml,campaignFunnel:()=>'',
+  moneyInCurrency:()=>'',num:String,dec:String,pct:String,
+});
+vm.runInContext(`${source.slice(start,end)};this.columns=PAID_COLUMNS`,context);
+const malicious = '<img src=https://example.invalid/pixel>';
+assert.strictEqual(context.columns.find((entry)=>entry.id==='platform').get({source:malicious}),
+  '&lt;img src=https://example.invalid/pixel&gt;');
+assert.strictEqual(context.columns.find((entry)=>entry.id==='type').get({channel:malicious}),
+  '&lt;img src=https://example.invalid/pixel&gt;');
+""")
+
     def test_date_preset_name_is_updated_instead_of_duplicated(self) -> None:
         self.run_node(r"""
 const assert = require('assert');

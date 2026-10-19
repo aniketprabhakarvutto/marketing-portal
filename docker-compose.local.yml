@@ -1,0 +1,16 @@
+services:
+  vortex-veri:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: vortex-veri:local
+    restart: unless-stopped
+    env_file: deploy/local.env
+    ports:
+      - "127.0.0.1:8788:8787"
+    volumes:
+      - vortex-veri-local-data:/data
+      - ./backups:/app/backups
+
+volumes:
+  vortex-veri-local-data:

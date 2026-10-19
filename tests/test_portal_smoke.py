@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 import sqlite3
-from datetime import timedelta
+from datetime import date, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -495,7 +495,6 @@ class PortalSmokeTests(unittest.TestCase):
         handler = server.Handler.__new__(server.Handler)
         handler.client_address = ("127.0.0.1", 12345)
         handler.headers = {"CF-Connecting-IP": "203.0.113.10"}
-        self.assertFalse(handler._local_client())
         self.assertFalse(handler._trusted_local_request())
         self.assertIn("portal_session", script)
         self.assertTrue(handler._role_allows("viewer", "GET", "/"))
@@ -504,6 +503,14 @@ class PortalSmokeTests(unittest.TestCase):
         self.assertFalse(handler._role_allows("viewer", "GET", "/api/workspace"))
         self.assertFalse(handler._role_allows("analyst", "POST", "/api/connections"))
         self.assertFalse(handler._role_allows("viewer", "GET", "/api/new-future-endpoint"))
+
+    def test_default_sync_window_uses_portal_date_and_inclusive_days(self) -> None:
+        with patch.object(api, "portal_today", return_value=date(2026, 10, 19)), \
+             patch.object(APP, "sync_lookback_days", 30):
+            self.assertEqual(
+                server._window({}),
+                (date(2026, 9, 20), date(2026, 10, 19)),
+            )
 
     def test_derived_cost_comparisons_require_paid_and_crm_coverage(self) -> None:
         script = Path("portal/api.py").read_text(encoding="utf-8")
