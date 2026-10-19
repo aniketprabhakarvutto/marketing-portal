@@ -24,20 +24,23 @@ PAID_SOURCES = ("google_ads", "meta_ads", "linkedin_ads", "tiktok_ads")
 # When direct Superleap rows exist for a day they replace the older CSV/Sheet
 # aggregates for that day. Dates without API rows keep the legacy backfill.
 CRM_DAILY_FROM = """(SELECT d.* FROM crm_daily d
-    WHERE EXISTS (SELECT 1 FROM connections c WHERE c.id=d.connection_id AND c.provider='superleap_crm')
-       OR NOT EXISTS (SELECT 1 FROM crm_daily direct JOIN connections c
-                      ON c.id=direct.connection_id AND c.provider='superleap_crm'
-                      WHERE direct.date=d.date)) AS crm_daily"""
+    LEFT JOIN connections c ON c.id=d.connection_id
+    WHERE (c.id IS NULL OR c.enabled=1) AND (c.provider='superleap_crm'
+       OR NOT EXISTS (SELECT 1 FROM crm_daily direct JOIN connections dc
+                      ON dc.id=direct.connection_id AND dc.provider='superleap_crm' AND dc.enabled=1
+                      WHERE direct.date=d.date))) AS crm_daily"""
 CRM_CITY_DAILY_FROM = """(SELECT d.* FROM crm_city_daily d
-    WHERE EXISTS (SELECT 1 FROM connections c WHERE c.id=d.connection_id AND c.provider='superleap_crm')
-       OR NOT EXISTS (SELECT 1 FROM crm_city_daily direct JOIN connections c
-                      ON c.id=direct.connection_id AND c.provider='superleap_crm'
-                      WHERE direct.date=d.date)) AS crm_city_daily"""
+    LEFT JOIN connections c ON c.id=d.connection_id
+    WHERE (c.id IS NULL OR c.enabled=1) AND (c.provider='superleap_crm'
+       OR NOT EXISTS (SELECT 1 FROM crm_city_daily direct JOIN connections dc
+                      ON dc.id=direct.connection_id AND dc.provider='superleap_crm' AND dc.enabled=1
+                      WHERE direct.date=d.date))) AS crm_city_daily"""
 CRM_LEADS_FROM = """(SELECT d.* FROM crm_leads d
-    WHERE EXISTS (SELECT 1 FROM connections c WHERE c.id=d.connection_id AND c.provider='superleap_crm')
-       OR NOT EXISTS (SELECT 1 FROM crm_leads direct JOIN connections c
-                      ON c.id=direct.connection_id AND c.provider='superleap_crm'
-                      WHERE direct.created_date=d.created_date)) AS crm_leads"""
+    LEFT JOIN connections c ON c.id=d.connection_id
+    WHERE (c.id IS NULL OR c.enabled=1) AND (c.provider='superleap_crm'
+       OR NOT EXISTS (SELECT 1 FROM crm_leads direct JOIN connections dc
+                      ON dc.id=direct.connection_id AND dc.provider='superleap_crm' AND dc.enabled=1
+                      WHERE direct.created_date=d.created_date))) AS crm_leads"""
 
 
 # --------------------------------------------------------------------- helpers
@@ -133,7 +136,7 @@ def _crm_campaign_reporting_rows(start: str, end: str) -> list[dict[str, Any]]:
         "SELECT d.date, d.channel, d.campaign_id, d.campaign_name, d.lead_type, "
         "d.leads, d.won, d.connection_id, c.provider, c.name source_name "
         "FROM crm_campaign_daily d LEFT JOIN connections c ON c.id = d.connection_id "
-        "WHERE d.date BETWEEN ? AND ? ORDER BY d.date, d.id", (start, end))
+        "WHERE d.date BETWEEN ? AND ? AND (c.id IS NULL OR c.enabled=1) ORDER BY d.date, d.id", (start, end))
     grouped: dict[tuple[str, str, str, str], dict[int, dict[str, Any]]] = {}
     for row in source_rows:
         name_key = _campaign_key(row["campaign_name"])
@@ -456,7 +459,7 @@ def data_quality(start: str | None, end: str | None) -> dict[str, Any]:
                   else "Revenue is not mapped; CRM ROAS stays unavailable.",
     })
     campaign_revenue_rows = int(scalar(
-        "SELECT COUNT(*) FROM crm_leads WHERE created_date BETWEEN ? AND ? "
+        "SELECT COUNT(*) FROM " + CRM_LEADS_FROM + " WHERE created_date BETWEEN ? AND ? "
         "AND revenue != 0 AND TRIM(utm_campaign) != ''", (s, e), default=0) or 0)
     checks.append({
         "id": "campaign-revenue", "status": "pass" if campaign_revenue_rows else "warn",
@@ -487,11 +490,13 @@ def data_quality(start: str | None, end: str | None) -> dict[str, Any]:
     })
     duplicate_leads = int(scalar(
         "SELECT COALESCE(SUM(n-1),0) FROM ("
-        "SELECT COUNT(*) n FROM crm_leads WHERE created_date BETWEEN ? AND ? "
-        "GROUP BY external_id HAVING COUNT(DISTINCT connection_id) > 1)",
+        "SELECT COUNT(*) n FROM crm_leads d LEFT JOIN connections c "
+        "ON c.id=d.connection_id WHERE d.created_date BETWEEN ? AND ? AND (c.id IS NULL OR c.enabled=1) "
+        "GROUP BY d.external_id HAVING COUNT(DISTINCT d.connection_id) > 1)",
         (s, e), default=0) or 0)
     lead_rows = int(scalar(
-        "SELECT COUNT(*) FROM crm_leads WHERE created_date BETWEEN ? AND ?",
+        "SELECT COUNT(*) FROM crm_leads d LEFT JOIN connections c "
+        "ON c.id=d.connection_id WHERE d.created_date BETWEEN ? AND ? AND (c.id IS NULL OR c.enabled=1)",
         (s, e), default=0) or 0)
     checks.append({
         "id": "duplicates", "status": "warn" if duplicate_leads or not lead_rows else "pass",
@@ -536,7 +541,7 @@ def data_quality(start: str | None, end: str | None) -> dict[str, Any]:
         "SELECT d.date, d.channel, d.campaign_name, d.lead_type, d.connection_id, "
         "SUM(d.leads) leads, SUM(d.won) won, c.provider, c.config "
         "FROM crm_campaign_daily d LEFT JOIN connections c ON c.id=d.connection_id "
-        "WHERE d.date BETWEEN ? AND ? "
+        "WHERE d.date BETWEEN ? AND ? AND (c.id IS NULL OR c.enabled=1) "
         "GROUP BY d.date, d.channel, d.campaign_name, d.lead_type, d.connection_id", (s, e))
     overlap: dict[tuple[str, str, str, str], dict[int, dict[str, Any]]] = {}
     for row in campaign_rows:

@@ -290,6 +290,27 @@ class CRMReportingTests(unittest.TestCase):
         }])
         self.assertEqual(api.crm(self.next_day, self.next_day)["funnels"][0]["stages"][0]["count"], 5)
 
+    def test_disabled_crm_feeds_do_not_affect_reports_or_quality_checks(self) -> None:
+        db.execute("UPDATE connections SET enabled=0 WHERE id=12")
+        db.upsert("crm_daily", [{
+            "date": self.day, "channel": "google_ads", "source": "Google",
+            "lead_type": "buy", "leads": 99, "connection_id": 12,
+        }])
+        db.upsert("crm_campaign_daily", [
+            {"date": self.day, "channel": "google_ads", "campaign_name": "Demand Test",
+             "lead_type": "buy", "leads": 5, "connection_id": 11},
+            {"date": self.day, "channel": "google_ads", "campaign_name": "Demand Test",
+             "lead_type": "demand", "leads": 50, "connection_id": 12},
+        ])
+
+        funnel = api.crm(self.day, self.day)["funnels"][0]
+        self.assertEqual(funnel["stages"][0]["count"], 0)
+        rows = api._crm_campaign_reporting_rows(self.day, self.day)
+        self.assertEqual([(row["connection_id"], row["leads"]) for row in rows], [(11, 5)])
+        check = next(item for item in api.data_quality(self.day, self.day)["checks"]
+                     if item["id"] == "crm-feed-overlap")
+        self.assertEqual(check["status"], "pass")
+
     def test_direct_campaign_feed_wins_a_matching_legacy_export(self) -> None:
         db.execute("INSERT INTO connections (id, provider, name) VALUES (70, 'superleap_crm', 'Superleap API')")
         db.execute("INSERT INTO connections (id, provider, name) VALUES (71, 'csv', 'Old campaign export')")
