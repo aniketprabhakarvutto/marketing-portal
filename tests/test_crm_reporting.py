@@ -136,6 +136,22 @@ class CRMReportingTests(unittest.TestCase):
         self.assertIn("1 supply opportunity", check["detail"])
         self.assertIn("not marked qualified", check["detail"])
 
+    def test_direct_superleap_does_not_require_a_retired_qualification_field(self) -> None:
+        db.execute("INSERT INTO connections (id, provider, name) VALUES (70, 'superleap_crm', 'Superleap API')")
+        db.upsert("crm_daily", [{
+            "date": self.day, "channel": "google_ads", "source": "Google",
+            "lead_type": "sell", "leads": 2, "qualified": 0,
+            "contacted": 0, "booked": 1, "connection_id": 70,
+        }])
+        with patch("portal.api.connections", return_value=[{
+            "provider": "superleap_crm", "name": "Superleap API", "enabled": True,
+            "syncable": True, "config": {}, "last_status": "ok",
+        }]):
+            check = next(item for item in api.data_quality(self.day, self.day)["checks"]
+                         if item["id"] == "funnel-order")
+        self.assertEqual(check["status"], "pass")
+        self.assertIn("no separate qualification field", check["detail"])
+
     def test_inconsistent_funnel_keeps_unmodified_source_counts(self) -> None:
         db.upsert("crm_daily", [{
             "date": self.day, "channel": "google_ads", "source": "Google",

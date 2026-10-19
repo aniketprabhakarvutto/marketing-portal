@@ -161,13 +161,13 @@ class SuperleapProviderTests(unittest.TestCase):
                 self.assertEqual(row["utm_source"], source)
                 self.assertEqual(row["utm_medium"], lead_type)
 
-    def test_supply_contacted_requires_qualification_for_qualified_funnel(self) -> None:
+    def test_supply_contacted_uses_the_documented_stage_pipeline(self) -> None:
         row = self.provider._normalise(self.conn, {
             "id": "unqualified", "created_at": "2026-10-08T12:00:00Z",
             "lead_category": "sell", "stage1": "Follow Up Planned",
             "event_qualification_status": "Invalid",
         }, DEFAULT_FIELD_MAP)
-        self.assertEqual(row["is_contacted"], 0)
+        self.assertEqual(row["is_contacted"], 1)
 
     def test_underscore_stage_variant_keeps_inspection_milestones(self) -> None:
         row = self.provider._normalise(self.conn, {

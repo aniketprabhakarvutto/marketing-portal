@@ -508,16 +508,27 @@ def data_quality(start: str | None, end: str | None) -> dict[str, Any]:
                    if not lead_rows else
                    "No external lead IDs repeat across CRM connections in this range."),
     })
+    crm_feed_targets = {"crm_leads", "crm_daily", "crm_city_daily", "crm_campaign_daily"}
+    active_crm_feeds = []
+    for connection in enabled:
+        provider = REGISTRY.get(connection["provider"])
+        target = connection.get("config", {}).get("target_table") or (provider.table if provider else "")
+        if target in crm_feed_targets:
+            active_crm_feeds.append(connection)
+    direct_superleap_only = bool(active_crm_feeds) and all(
+        connection["provider"] == "superleap_crm" for connection in active_crm_feeds)
+
     invalid_rows = 0
-    for side_row in query(
-        "SELECT DISTINCT lead_type FROM " + CRM_DAILY_FROM + " WHERE date BETWEEN ? AND ?",
-        (s, e),
-    ):
-        invalid_rows += _invalid_funnel_rows(s, e, side_row["lead_type"])
+    if not direct_superleap_only:
+        for side_row in query(
+            "SELECT DISTINCT lead_type FROM " + CRM_DAILY_FROM + " WHERE date BETWEEN ? AND ?",
+            (s, e),
+        ):
+            invalid_rows += _invalid_funnel_rows(s, e, side_row["lead_type"])
     funnel_rows = int(scalar(
         "SELECT COUNT(*) FROM " + CRM_DAILY_FROM + " WHERE date BETWEEN ? AND ?",
         (s, e), default=0) or 0)
-    unqualified_supply = int(scalar(
+    unqualified_supply = 0 if direct_superleap_only else int(scalar(
         "SELECT COUNT(*) FROM " + CRM_LEADS_FROM + " WHERE created_date BETWEEN ? AND ? "
         "AND lead_type = 'sell' AND is_qualified = 0 "
         "AND (is_visit_booked = 1 OR is_visit_done = 1 OR is_sale = 1)",
@@ -535,7 +546,8 @@ def data_quality(start: str | None, end: str | None) -> dict[str, Any]:
                    + qualification_detail +
                    " Check the source qualification field; the portal does not invent missing stages."
                    if invalid_rows else "Not checked: no detailed CRM funnel rows in this range."
-                   if not funnel_rows else "No CRM rows violate the configured funnel stage order."),
+                   if not funnel_rows else "Superleap's documented stage pipeline has no separate qualification field."
+                   if direct_superleap_only else "No CRM rows violate the configured funnel stage order."),
     })
     campaign_rows = query(
         "SELECT d.date, d.channel, d.campaign_name, d.lead_type, d.connection_id, "

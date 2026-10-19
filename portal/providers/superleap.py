@@ -26,7 +26,6 @@ DEFAULT_FIELD_MAP = {
     "city": "customer_city",
     "store": "sales_store",
     "stage": "stage1",
-    "is_qualified": "event_qualification_status",
 }
 
 SUPPLY_COMPLETED_STAGES = {
@@ -227,11 +226,9 @@ class SuperleapCRMProvider(Provider):
         if "is_contacted" not in mapping:
             row["is_contacted"] = int(bool(stage) and not any(
                 marker in stage for marker in ("not assigned", "not attempted", "not contacted", "not connected")))
-        if "is_qualified" in mapping:
-            row["is_qualified"] = (cls._truthy(record.get(mapping["is_qualified"]))
-                                   if side == "sell" else 0)
-        if side == "sell":
-            row["is_contacted"] = int(bool(row["is_contacted"]) and bool(row["is_qualified"]))
+        # Superleap's documented Opportunity pipeline has no supported
+        # qualification field. Stage1 is the authoritative funnel state.
+        # Do not suppress a contacted supply lead using a retired custom field.
         if "is_visit_booked" not in mapping:
             row["is_visit_booked"] = int(
                 stage in {"store visit planned", "store visit done", "sales done"}
