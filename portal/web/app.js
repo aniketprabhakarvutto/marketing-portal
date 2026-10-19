@@ -1573,7 +1573,7 @@ function renderGoogleAccountOptions() {
   });
   const choices = [...accounts.entries()].sort((a, b) => a[1].localeCompare(b[1]));
   if (state.campaignGoogleAccount && !accounts.has(state.campaignGoogleAccount)) state.campaignGoogleAccount = "";
-  select.innerHTML = ["<option value=\"\">All Google Ads accounts</option>", ...choices.map(([key, label]) =>
+  select.innerHTML = ["<option value=\"\">All accounts</option>", ...choices.map(([key, label]) =>
     `<option value="${esc(key)}">${esc(label)}</option>`)].join("");
   select.value = state.campaignGoogleAccount;
   select.disabled = state.campaignSrc === "meta_ads" || !choices.length;

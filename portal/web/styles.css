@@ -800,19 +800,18 @@ body.drawer-open { overflow: hidden; }
   border-color: var(--series-1);
 }
 .campaign-filters {
-  display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
-  margin: 0 0 12px;
+  display: grid; grid-template-columns: max-content minmax(220px, 300px) max-content max-content;
+  align-items: center; gap: 8px 16px; margin: 0 0 12px;
 }
-.filter-group { display: flex; align-items: center; gap: 5px; }
-.filter-group > span { margin-right: 3px; }
-.filter-group button { padding: 5px 9px; font-size: 12px; }
-.account-filter { display: grid; grid-template-columns: auto minmax(190px, 260px); column-gap: 8px; row-gap: 3px; }
-.account-filter > span { align-self: center; margin: 0; }
-.account-filter select { min-width: 0; min-height: 34px; padding: 5px 30px 5px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-1); color: var(--text-primary); font: inherit; font-size: 12px; }
+.filter-group { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+.filter-group > span { margin-right: 5px; }
+.filter-group button { min-height: 32px; padding: 4px 8px; font-size: 12px; }
+.account-filter { display: flex; align-items: center; min-width: 0; gap: 7px; white-space: nowrap; }
+.account-filter > span { flex: 0 0 auto; color: var(--text-secondary); font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.account-filter select { min-width: 0; width: 100%; min-height: 32px; padding: 4px 28px 4px 9px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface-1); color: var(--text-primary); font: inherit; font-size: 12px; }
 .account-filter select:focus { outline: 2px solid color-mix(in srgb, var(--series-1) 28%, transparent); border-color: var(--series-1); }
 .account-filter select:disabled { cursor: not-allowed; opacity: .58; }
-.account-filter small { grid-column: 2; overflow: hidden; color: var(--text-muted); font-size: 10px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
-.result-count { margin-left: auto; color: var(--text-muted); font-size: 12px; }
+.result-count { justify-self: end; color: var(--text-muted); font-size: 12px; white-space: nowrap; }
 .campaign-tag {
   display: inline-flex; align-items: center; max-width: 100%; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; padding: 2px 7px; border-radius: 999px;
@@ -1587,9 +1586,9 @@ tbody tr:hover td { background: var(--primary-soft); color: var(--text-primary);
 .table-columns-menu, .columns-menu { border-radius: var(--radius-md); box-shadow: var(--shadow-md); }
 .table-columns-menu label, .columns-menu label { min-height: 36px; }
 .table-result-count, .result-count { padding: 5px 9px; border-radius: 999px; background: var(--surface-2); }
-.campaign-filters { gap: 12px 18px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); }
+.campaign-filters { gap: 8px 16px; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); }
 .filter-group > span { color: var(--text-secondary); }
-.filter-group button { min-height: 34px; padding: 5px 10px; }
+.filter-group button { min-height: 32px; padding: 4px 8px; }
 .campaign-tag { min-height: 23px; padding: 3px 8px; font-size: 10.5px; }
 .campaign-tag.demand { color: #166534; background: #dcfce7; }
 .campaign-tag.supply { color: #92400e; background: #fef3c7; }
@@ -1701,10 +1700,9 @@ main > section.is-loading::before {
   .filter-group { width: 100%; flex-wrap: wrap; }
   .filter-group > span { width: 70px; }
   .filter-group button { min-height: 40px; }
-  .account-filter { grid-template-columns: 1fr; }
+  .account-filter { display: grid; grid-template-columns: 1fr; width: 100%; gap: 4px; }
   .account-filter > span { width: auto; }
   .account-filter select { min-height: 40px; width: 100%; font-size: 16px; }
-  .account-filter small { grid-column: auto; white-space: normal; }
   .row-height-control { width: 100%; grid-template-columns: 1fr auto; }
   .row-height-control input { width: 100%; }
   .frow { grid-template-columns: 92px minmax(90px, 1fr); gap: 8px; }
