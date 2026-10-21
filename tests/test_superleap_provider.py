@@ -68,7 +68,7 @@ class SuperleapProviderTests(unittest.TestCase):
 
     def test_fetch_reads_all_cursor_pages_and_normalises_vutto_opportunities(self) -> None:
         schema = {"data": {"fields": [{"field_name": field}
-                                      for field in set(DEFAULT_FIELD_MAP.values()) | {"updated_at"}]}}
+                                      for field in set(DEFAULT_FIELD_MAP.values()) | {"updated_at", "utm_source", "utm_medium"}]}}
         page_one = {"data": {"records": [{
             "id": "lead-1", "created_at": "2026-10-07T19:30:00Z", "vutto_source": "Google",
             "lead_type": "Paid", "utm_campaign": "Jaipur Demand", "lead_category": "buy",
@@ -95,6 +95,8 @@ class SuperleapProviderTests(unittest.TestCase):
         self.assertEqual(rows[1]["is_sale"], 1)
         self.assertEqual(request.call_count, 4)
         self.assertEqual(request.call_args_list[2].kwargs["body"]["next_token"], None)
+        self.assertIn("utm_source", request.call_args_list[2].kwargs["body"]["query"]["fields"])
+        self.assertIn("utm_medium", request.call_args_list[2].kwargs["body"]["query"]["fields"])
         self.assertEqual(request.call_args_list[3].kwargs["body"]["next_token"], "page-2")
 
     def test_not_connected_opportunity_is_not_counted_as_contacted(self) -> None:
@@ -160,6 +162,19 @@ class SuperleapProviderTests(unittest.TestCase):
                 self.assertEqual(row["channel"], channel)
                 self.assertEqual(row["utm_source"], source)
                 self.assertEqual(row["utm_medium"], lead_type)
+
+    def test_unclassified_source_uses_paid_utm_only_with_matching_evidence(self) -> None:
+        base = {"id": "tagged", "created_at": "2026-10-08T12:00:00Z",
+                "lead_category": "buy", "stage1": "Not Assigned",
+                "vutto_source": "others", "lead_type": "paid", "utm_source": "ig"}
+        row = self.provider._normalise(self.conn, {**base, "utm_medium": "paid"}, DEFAULT_FIELD_MAP)
+        self.assertEqual(row["channel"], "meta_ads")
+        self.assertEqual(row["utm_source"], "others")
+        for changes in ({"utm_medium": "organic"}, {"utm_medium": ""},
+                        {"utm_medium": "paid", "lead_type": "organic"}):
+            with self.subTest(changes=changes):
+                row = self.provider._normalise(self.conn, {**base, **changes}, DEFAULT_FIELD_MAP)
+                self.assertEqual(row["channel"], "others")
 
     def test_supply_contacted_uses_the_documented_stage_pipeline(self) -> None:
         row = self.provider._normalise(self.conn, {

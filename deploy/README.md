@@ -80,6 +80,45 @@ to `http://127.0.0.1:8787`. Set `PORTAL_TRUSTED_PROXY_IPS` only to the actual
 local proxy address after confirming that the proxy overwrites forwarding
 headers. HTTPS is required because the portal's session cookies are secure.
 
+Run exactly one application instance. Each instance starts its own scheduler,
+keeps login throttles in process memory, and performs interrupted-job recovery.
+Do not scale replicas or share this SQLite file over network storage. A
+multi-instance deployment requires shared coordination and a tested database
+migration before it is safe.
+
+Use an HTTPS reverse proxy with bounded connections and request body, header and
+upstream timeouts. Restrict the portal port to loopback as in the Compose file.
+Monitor `/readyz` from the trusted local network: it checks a database query and
+returns 503 if it fails. `/healthz` only checks that the HTTP process responds.
+Neither endpoint proves that connectors are fresh or backups are restorable.
+Configure alerts for readiness failures, disk capacity, failed sync and backup
+jobs, and backup age. The health check in the Docker image uses `/readyz`.
+
+### Encrypted backup recovery
+
+Encrypted `.vvb` snapshots use AES-256-GCM. Store the recovery key in a
+password manager outside the laptop and never commit it to Git. The key is
+required to restore the snapshot. The backup contains portal database records,
+but does not contain connector credentials stored in macOS Keychain.
+
+To verify a downloaded snapshot without replacing the live database, use a
+Python environment with `cryptography` installed:
+
+```sh
+python3 scripts/restore_encrypted_backup.py /path/to/backup.vvb /path/to/recovery-key.txt /path/to/new-restore.db
+```
+
+The destination must not exist. The script authenticates the ciphertext and
+checks SQLite integrity. Inspect the restored copy before following the normal
+offline restoration procedure. A one-time upload to Drive does not schedule
+future uploads; configure and test an authenticated background uploader.
+
+The backup job writes to the mounted backups directory, but a mount on the same
+server is not an off-server backup. Configure a backup job, copy encrypted
+backups to independent storage, protect and separately back up the Fernet key,
+and regularly restore a backup into an isolated environment. A local test
+cannot establish that the production job, remote copy or recovery works.
+
 ## Updates
 
 On the server:

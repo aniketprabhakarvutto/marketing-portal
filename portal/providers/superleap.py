@@ -247,10 +247,22 @@ class SuperleapCRMProvider(Provider):
         if not row.get("channel"):
             source = str(row.get("utm_source") or "").strip().lower()
             medium = str(row.get("utm_medium") or "").strip()
+            # When Vutto's source is unclassified, the original UTM tags can
+            # identify paid traffic. Require both source and medium rather than
+            # inferring an ad platform from a campaign name or a bare source.
+            raw_source = str(record.get("utm_source") or "").strip()
+            raw_medium = str(record.get("utm_medium") or "").strip()
+            tagged_channel = normalise_channel(raw_source, raw_medium)
+            if (mapping.get("utm_source") == "vutto_source"
+                    and source in {"", "other", "others"}
+                    and medium.lower() == "paid"
+                    and raw_medium.lower() in {"paid", "cpc", "ppc", "paid_social", "paidsocial"}
+                    and tagged_channel in {"google_ads", "meta_ads"}):
+                row["channel"] = tagged_channel
             # Vutto's named source is more specific than its Paid/Organic lead
             # type. Use the existing Vutto source categories before generic
             # UTM rules, which would treat every Organic lead as search.
-            row["channel"] = (SOURCE_ONLY_PAID_CHANNELS[source]
+            row["channel"] = row.get("channel") or (SOURCE_ONLY_PAID_CHANNELS[source]
                               if not medium and source in SOURCE_ONLY_PAID_CHANNELS
                               else VUTTO_SOURCE_CHANNELS.get(source)
                               or normalise_channel(source, medium))
@@ -323,6 +335,9 @@ class SuperleapCRMProvider(Provider):
         available = {str(item.get("field_name") or item.get("slug") or "")
                      for item in fields if isinstance(item, dict)}
         selected = list(dict.fromkeys([*mapping.values(), "updated_at"]))
+        if mapping.get("utm_source") == "vutto_source":
+            selected.extend(field for field in ("utm_source", "utm_medium")
+                            if field in available and field not in selected)
         missing = [name for name in selected if name and name not in available]
         if missing:
             raise RuntimeError("The selected Superleap object is missing mapped fields: " + ", ".join(missing))

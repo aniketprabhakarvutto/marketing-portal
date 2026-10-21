@@ -44,7 +44,12 @@ form.addEventListener("submit", async (event) => {
   event.preventDefault();
   message.textContent = "";
   const button = document.querySelector("#submit");
+  const originalLabel = button.textContent;
   button.disabled = true;
+  button.textContent = setup ? "Creating account..." : "Signing in...";
+  button.classList.add("is-busy");
+  form.setAttribute("aria-busy", "true");
+  let navigating = false;
   try {
     const body = {
       email: document.querySelector("#email").value,
@@ -59,11 +64,18 @@ form.addEventListener("submit", async (event) => {
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Sign-in failed.");
+    navigating = true;
+    button.textContent = "Opening portal...";
     location.replace(`/${location.hash}`);
   } catch (error) {
     message.textContent = error.message || "Sign-in failed.";
   } finally {
-    button.disabled = false;
+    if (!navigating) {
+      button.disabled = false;
+      button.textContent = originalLabel;
+      button.classList.remove("is-busy");
+      form.removeAttribute("aria-busy");
+    }
   }
 });
 

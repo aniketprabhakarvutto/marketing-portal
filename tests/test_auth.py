@@ -5,6 +5,7 @@ import json
 import threading
 import secrets
 import unittest
+from unittest.mock import patch
 from email.message import Message
 from http.server import ThreadingHTTPServer
 from tempfile import TemporaryDirectory
@@ -85,6 +86,14 @@ class AuthBoundaryTests(unittest.TestCase):
         self.assertEqual(self.request("GET", "/api/auth/status")[0], 200)
         self.assertEqual(self.request("GET", "/static/login.js")[0], 200)
 
+    def test_readiness_reports_database_failure_without_leaking_details(self) -> None:
+        self.assertEqual(self.request("GET", "/healthz")[0], 200)
+        self.assertEqual(self.request("GET", "/readyz")[0], 200)
+        with patch("portal.server.query", side_effect=RuntimeError("private database detail")):
+            status, _, body = self.request("GET", "/readyz")
+        self.assertEqual(status, 503)
+        self.assertNotIn(b"private database detail", body)
+
     def test_setup_role_limits_csrf_and_logout(self) -> None:
         cookie, csrf = self.login_admin()
         status, _, body = self.request("POST", "/api/auth/setup", {
@@ -150,6 +159,21 @@ class AuthBoundaryTests(unittest.TestCase):
         self.assertEqual(self.request("POST", "/api/automation", {}, cookie=cookie,
                                       csrf=csrf, origin=self.origin,
                                       content_type="text/plain")[0], 415)
+
+    def test_rejected_body_does_not_corrupt_next_request(self) -> None:
+        cookie, csrf = self.login_admin()
+        conn = http.client.HTTPConnection("127.0.0.1", self.httpd.server_port, timeout=5)
+        headers = {"Host": f"127.0.0.1:{self.httpd.server_port}", "Origin": self.origin,
+                   "Content-Type": "application/json", "Cookie": cookie}
+        conn.request("POST", "/api/assistant/ask", body='{"question":"hello"}', headers=headers)
+        rejected = conn.getresponse()
+        self.assertEqual(rejected.status, 403)
+        self.assertEqual(rejected.getheader("Connection"), "close")
+        rejected.read()
+        conn.request("GET", "/api/auth/me", headers={"Cookie": cookie})
+        following = conn.getresponse()
+        self.assertEqual(following.status, 200, following.read())
+        conn.close()
 
     def test_password_change_rotates_and_revokes_the_old_session(self) -> None:
         old_cookie, csrf = self.login_admin()

@@ -66,6 +66,20 @@ class CampaignPagingBudgetTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             api.campaigns("2026-10-08", "2026-10-08", source="typo")
 
+    def test_crm_lead_selection_prefers_enabled_direct_source_per_day(self):
+        db.execute("INSERT INTO connections(id, provider, name, enabled) VALUES (1, 'csv', 'legacy', 1)")
+        db.execute("INSERT INTO connections(id, provider, name, enabled) VALUES (2, 'superleap_crm', 'direct', 1)")
+        db.execute("INSERT INTO connections(id, provider, name, enabled) VALUES (3, 'superleap_crm', 'disabled', 0)")
+        db.upsert("crm_leads", [
+            {"external_id": "old1", "created_date": "2026-10-08", "connection_id": 1},
+            {"external_id": "direct1", "created_date": "2026-10-08", "connection_id": 2},
+            {"external_id": "old2", "created_date": "2026-10-09", "connection_id": 1},
+            {"external_id": "disabled1", "created_date": "2026-10-09", "connection_id": 3},
+            {"external_id": "unlinked", "created_date": "2026-10-10", "connection_id": 999},
+        ])
+        rows = db.query("SELECT external_id FROM " + api.CRM_LEADS_FROM + " ORDER BY external_id")
+        self.assertEqual([row[0] for row in rows], ["direct1", "old2", "unlinked"])
+
 
 if __name__ == "__main__":
     unittest.main()

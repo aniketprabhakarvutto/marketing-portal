@@ -39,7 +39,7 @@ WEB = Path(__file__).parent / "web"
 
 LOGIN_HTML = r"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Sign in · Vortex Veri</title><link rel="stylesheet" href="/static/login.css?v=2"><script src="/static/login.js?v=2" defer></script></head><body><main><div class="brand"><img class="mark" src="/static/assets/vortex-veri-mark.png" alt=""><strong>Vortex Veri</strong></div>
+<title>Sign in · Vortex Veri</title><link rel="icon" type="image/png" href="/static/assets/vortex-veri-mark.png?v=2"><link rel="stylesheet" href="/static/login.css?v=2"><script src="/static/login.js?v=2" defer></script></head><body><main><div class="brand"><img class="mark" src="/static/assets/vortex-veri-mark.png" alt=""><strong>Vortex Veri</strong></div>
 <p class="eyebrow" id="eyebrow">Private workspace</p><h1 id="title">Sign in</h1><p id="hint">Use your portal account to continue.</p>
 <form id="authForm" method="post" action="/api/auth/login" autocomplete="on"><div id="nameField" hidden><label for="displayName">Your name<input id="displayName" name="name" autocomplete="name" maxlength="100"></label></div>
 <label for="email">Work email<input id="email" name="email" type="email" autocomplete="username" required maxlength="254"></label>
@@ -342,7 +342,13 @@ class Handler(BaseHTTPRequestHandler):
         self._send(status, json.dumps(payload, default=str).encode(), "application/json", headers)
 
     def _error(self, status: int, message: str) -> None:
-        self._json({"error": message}, status)
+        # A rejected request can still have an unread body. Do not let those
+        # bytes become the next request on an HTTP/1.1 keep-alive connection.
+        headers = None
+        if self.command in {"POST", "PUT", "PATCH", "DELETE"}:
+            self.close_connection = True
+            headers = {"Connection": "close"}
+        self._json({"error": message}, status, headers)
 
     def _html(self, body: str, status: int = 200) -> None:
         self._send(status, body.encode(), "text/html; charset=utf-8")
@@ -604,6 +610,15 @@ class Handler(BaseHTTPRequestHandler):
         parts = urlsplit(self.path)
         route = parts.path
         if route == "/healthz":
+            self._json({"status": "ok"})
+            return
+        if route == "/readyz":
+            try:
+                query("SELECT key FROM portal_settings LIMIT 1")
+            except Exception:
+                log.exception("database readiness check failed")
+                self._json({"status": "unavailable"}, 503)
+                return
             self._json({"status": "ok"})
             return
         if route == "/api/auth/status":

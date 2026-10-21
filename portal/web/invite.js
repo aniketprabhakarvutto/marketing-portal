@@ -34,7 +34,11 @@ form.addEventListener("submit", async (event) => {
     return;
   }
   const button = document.querySelector("#acceptInvite");
+  const label = button.textContent;
   button.disabled = true;
+  button.textContent = "Creating account...";
+  form.setAttribute("aria-busy", "true");
+  let navigating = false;
   try {
     const response = await fetch("/api/invitations/accept", {
       method: "POST",
@@ -50,10 +54,12 @@ form.addEventListener("submit", async (event) => {
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.error || "Could not accept this invitation.");
+    navigating = true;
+    button.textContent = "Opening portal...";
     location.replace("/");
   } catch (error) {
     message.textContent = error.message || "Could not accept this invitation.";
   } finally {
-    button.disabled = false;
+    if (!navigating) { button.disabled = false; button.textContent = label; form.removeAttribute("aria-busy"); }
   }
 });

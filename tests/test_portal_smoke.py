@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 import sqlite3
+import shutil
 from datetime import date, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -472,10 +473,17 @@ class PortalSmokeTests(unittest.TestCase):
     def test_online_database_backup_is_readable(self) -> None:
         with TemporaryDirectory() as temp:
             backup = Path(temp) / "portal-backup.db"
+            db.execute("INSERT INTO portal_settings(key, value) VALUES (?, ?)", ("restore_test", "preserved"))
             db.backup_database(str(backup))
             self.assertTrue(backup.exists())
             with sqlite3.connect(backup) as restored:
                 self.assertEqual(restored.execute("PRAGMA integrity_check").fetchone()[0], "ok")
+                self.assertEqual(restored.execute("SELECT value FROM portal_settings WHERE key=?", ("restore_test",)).fetchone()[0], "preserved")
+            restored_path = Path(temp) / "restored.db"
+            shutil.copyfile(backup, restored_path)
+            with sqlite3.connect(restored_path) as restored:
+                self.assertEqual(restored.execute("PRAGMA integrity_check").fetchone()[0], "ok")
+                self.assertEqual(restored.execute("SELECT value FROM portal_settings WHERE key=?", ("restore_test",)).fetchone()[0], "preserved")
             self.assertEqual(db.scalar("SELECT 1"), 1)
 
     def test_generic_connector_blocks_private_network_targets(self) -> None:

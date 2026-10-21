@@ -38,9 +38,9 @@ CRM_CITY_DAILY_FROM = """(SELECT d.* FROM crm_city_daily d
 CRM_LEADS_FROM = """(SELECT d.* FROM crm_leads d
     LEFT JOIN connections c ON c.id=d.connection_id
     WHERE (c.id IS NULL OR c.enabled=1) AND (c.provider='superleap_crm'
-       OR NOT EXISTS (SELECT 1 FROM crm_leads direct JOIN connections dc
-                      ON dc.id=direct.connection_id AND dc.provider='superleap_crm' AND dc.enabled=1
-                      WHERE direct.created_date=d.created_date))) AS crm_leads"""
+       OR d.created_date NOT IN (SELECT direct.created_date FROM crm_leads direct JOIN connections dc
+                                 ON dc.id=direct.connection_id
+                                 WHERE dc.provider='superleap_crm' AND dc.enabled=1))) AS crm_leads"""
 
 
 # --------------------------------------------------------------------- helpers

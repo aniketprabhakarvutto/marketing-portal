@@ -92,7 +92,11 @@ async function initialize() {
 $("#inviteForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   const button = $("#createInvite");
+  const form = event.currentTarget;
+  const label = button.textContent;
   button.disabled = true;
+  button.textContent = "Creating invitation...";
+  form.setAttribute("aria-busy", "true");
   showMessage("");
   $("#inviteCreated").hidden = true;
   try {
@@ -110,6 +114,8 @@ $("#inviteForm").addEventListener("submit", async (event) => {
     showMessage(error.message, true);
   } finally {
     button.disabled = false;
+    button.textContent = label;
+    form.removeAttribute("aria-busy");
   }
 });
 

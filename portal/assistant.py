@@ -201,6 +201,33 @@ def _assistant_instructions() -> str:
     )
 
 
+def _unsafe_model_reply(answer: str) -> bool:
+    """Reject common unsupported action claims and direct instruction echoes.
+
+    This is a defense in depth, not an authorization boundary. The assistant
+    has no action tools; new capabilities must enforce permissions separately.
+    """
+    normalized = " ".join(re.findall(r"[\w]+", answer.casefold()))
+    prompt_words = re.findall(r"[\w]+", _assistant_instructions().casefold())
+    if any(" ".join(prompt_words[i:i + 8]) in normalized
+           for i in range(len(prompt_words) - 7)):
+        return True
+    return bool(re.search(
+        r"\b(?:i|we)\s+(?:have\s+|successfully\s+|just\s+)?"
+        r"(?:completed|disabled|enabled|created|deleted|updated|changed|invited|synced|sent|exported)\b",
+        answer, re.IGNORECASE))
+
+
+def _restricted_request(question: str) -> bool:
+    q = question.casefold()
+    disclosure = re.search(r"\b(?:system|developer|hidden|internal)\s+(?:prompt|instructions?)\b", q)
+    action = re.search(r"\b(?:disable|enable|create|delete|remove|update|invite|sync|send|export)\b", q)
+    if not action:
+        action = re.search(r"(?:^|\b(?:please|can you|could you|will you)\s+)change\b", q)
+    target = re.search(r"\b(?:connections?|users?|accounts?|admins?|settings|sources?|reports?|data|campaigns?)\b", q)
+    return bool(disclosure or (action and target))
+
+
 def _ask_local_model(question: str, start: str, end: str) -> tuple[str, list[str]]:
     context, reports = _report_context(question, start, end)
     body = json.dumps({
@@ -1142,6 +1169,10 @@ def ask(user_id: int, question: str, start: str | None, end: str | None) -> dict
         raise ValueError("Enter a question of 1 to 1,000 characters.")
     _allow_request(user_id)
     s, e = api.date_range(start, end)
+    if _restricted_request(question):
+        return {"answer": "I can answer questions about portal reports, but I cannot change accounts, settings, connections, or data, or disclose internal instructions.",
+                "model": "portal-basic", "provider": "portal", "range": {"start": s, "end": e},
+                "date_basis": "dashboard selection", "reports_used": [], "read_only": True}
     question_dates = _question_dates(question)
     comparison = _question_comparison_answer(question, question_dates)
     if comparison:
@@ -1182,6 +1213,9 @@ def ask(user_id: int, question: str, start: str | None, end: str | None) -> dict
             answer, evidence = _basic_answer(question, s, e)
     else:
         answer, evidence = _basic_answer(question, s, e)
+    if model != "portal-basic" and _unsafe_model_reply(answer):
+        answer = "I can answer questions about portal reports, but I cannot change accounts, settings, connections, or data, or disclose internal instructions."
+        model, provider, evidence = "portal-basic", "portal", []
     return {"answer": answer, "model": model, "provider": provider,
             "range": {"start": s, "end": e},
             "date_basis": "question" if question_range else "dashboard selection",

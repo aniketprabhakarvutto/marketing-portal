@@ -348,8 +348,8 @@ async function api(path, opts = {}) {
   }
   if (!res.ok) {
     const raw = await res.text();
-    let message = raw;
-    try { message = JSON.parse(raw).error || raw; } catch (_) { /* plain text */ }
+    let message = `Request failed (${res.status}). Please try again.`;
+    try { const parsed = JSON.parse(raw); if (typeof parsed.error === "string") message = parsed.error; } catch (_) { /* Do not display server HTML. */ }
     throw new Error(message || `Request failed (${res.status})`);
   }
   return res.json();
@@ -3383,6 +3383,8 @@ async function refresh() {
 
 async function refreshPortal(notify = false) {
   const button = $("#refreshPortal");
+  const status = $("#refreshStatus");
+  if (status) status.hidden = false;
   setButtonBusy(button, true);
   try {
     const [meta, connections] = await Promise.all([api("/api/meta"), api("/api/connections")]);
@@ -3405,6 +3407,7 @@ async function refreshPortal(notify = false) {
     return false;
   } finally {
     setButtonBusy(button, false);
+    if (status) status.hidden = true;
   }
 }
 
@@ -4080,8 +4083,17 @@ async function boot() {
     } catch (err) { toast(`Could not update account: ${err.message}`, "error"); }
   });
   $("#logoutButton").addEventListener("click", async () => {
-    try { await api("/api/auth/logout", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }); }
-    finally { csrfToken = ""; location.replace("/login"); }
+    const buttons = [$("#logoutButton"), $("#settingsLogout")];
+    const labels = buttons.map((button) => button.innerHTML);
+    buttons.forEach((button) => { button.disabled = true; button.setAttribute("aria-busy", "true"); button.textContent = "Signing out..."; });
+    try {
+      await api("/api/auth/logout", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      csrfToken = "";
+      location.replace("/login");
+    } catch (error) {
+      buttons.forEach((button, index) => { button.disabled = false; button.removeAttribute("aria-busy"); button.innerHTML = labels[index]; });
+      toast(`Could not sign out: ${error.message}`, "error");
+    }
   });
   $("#settingsLogout").addEventListener("click", () => $("#logoutButton").click());
   $(".settings-nav").addEventListener("click", (event) => {
@@ -4625,3 +4637,57 @@ async function boot() {
 }
 
 boot();
+
+// Section navigation search and mobile navigation do not search or transmit report data.
+(() => {
+  const menu = document.querySelector("#mobileNavToggle");
+  const nav = document.querySelector("nav.tabs");
+  const search = document.querySelector("#sectionSearch");
+  const toggle = document.querySelector("#sectionSearchToggle");
+  const searchPanel = document.querySelector("#sectionSearchPanel");
+  const results = document.querySelector("#sectionSearchResults");
+  const top = document.querySelector("#backToTop");
+  if (!menu || !nav || !search || !toggle || !searchPanel || !results || !top) return;
+  const closeSearch = () => { searchPanel.hidden = true; results.hidden = true; toggle.setAttribute("aria-expanded", "false"); };
+  toggle.addEventListener("click", () => { if (!searchPanel.hidden) { closeSearch(); return; } searchPanel.hidden = false; toggle.setAttribute("aria-expanded", "true"); search.focus(); });
+  search.addEventListener("keydown", (event) => { if (event.key === "Escape") { closeSearch(); toggle.focus(); } });
+  menu.addEventListener("click", () => {
+    const open = menu.getAttribute("aria-expanded") === "true";
+    menu.setAttribute("aria-expanded", String(!open));
+    nav.classList.toggle("mobile-open", !open);
+  });
+  nav.addEventListener("click", (event) => {
+    if (event.target.closest("button[data-tab]")) { menu.setAttribute("aria-expanded", "false"); nav.classList.remove("mobile-open"); }
+  });
+  search.addEventListener("input", () => {
+    const query = search.value.trim().toLowerCase();
+    results.replaceChildren();
+    if (!query) { results.hidden = true; return; }
+    const matches = [...nav.querySelectorAll("button[data-tab]")].filter((button) => !button.hidden && button.getClientRects().length && button.textContent.toLowerCase().includes(query));
+    // A collapsed mobile menu has no rendered buttons, so use permission visibility instead.
+    const candidates = matches.length ? matches : [...nav.querySelectorAll("button[data-tab]")].filter((button) => !button.hidden && getComputedStyle(button).display !== "none" && button.textContent.toLowerCase().includes(query));
+    candidates.forEach((button) => {
+      const item = document.createElement("button"); item.type = "button"; item.textContent = button.textContent.trim();
+      item.addEventListener("click", () => { button.click(); search.value = ""; closeSearch(); }); results.append(item);
+    });
+    if (!candidates.length) { const note = document.createElement("span"); note.textContent = "No matching sections"; results.append(note); }
+    results.hidden = false;
+  });
+  document.addEventListener("click", (event) => { if (!event.target.closest(".section-search")) closeSearch(); });
+  const progress = document.querySelector("#scrollProgress");
+  const update = () => {
+    top.hidden = window.scrollY < 400;
+    const available = document.documentElement.scrollHeight - window.innerHeight;
+    if (progress) progress.style.transform = `scaleX(${available > 0 ? Math.min(1, window.scrollY / available) : 0})`;
+  };
+  window.addEventListener("scroll", update, { passive: true }); update();
+  top.addEventListener("click", () => window.scrollTo({ top: 0, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }));
+})();
+
+(() => {
+  const notice = document.querySelector("#cookieNotice");
+  const dismiss = document.querySelector("#dismissCookieNotice");
+  if (!notice || !dismiss) return;
+  try { notice.hidden = localStorage.getItem("portalCookieNoticeDismissed") === "1"; } catch (_) { notice.hidden = false; }
+  dismiss.addEventListener("click", () => { try { localStorage.setItem("portalCookieNoticeDismissed", "1"); } catch (_) {} notice.hidden = true; });
+})();
