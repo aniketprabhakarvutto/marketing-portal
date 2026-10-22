@@ -451,6 +451,9 @@ class GoogleSheetsProvider(Provider):
               placeholder="demand, supply, or mapping",
               help="Tag a workbook as demand, supply, or mapping. Only demand and supply "
                    "workbooks can receive automated campaign costs."),
+        Field("analytics_month", "Marketing Analytics month", required=False,
+              placeholder="2026-10",
+              help="Optional YYYY-MM month used when the workbook title has no month."),
         Field("drive_folder_id", "Monthly workbook folder ID", required=False,
               help="Optional Drive folder used to discover future monthly workbooks."),
         Field("campaign_cost_sheet", "Campaign cost tab", required=False,

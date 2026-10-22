@@ -112,7 +112,7 @@ def workbooks() -> list[dict]:
             metadata = _metadata(conn)
             title = str((metadata.get("properties") or {}).get("title") or conn.name)
             item["name"] = title
-            item["month"] = _month_key(title)
+            item["month"] = _month_key(title) or str(conn.get("analytics_month") or "").strip()
             item["tabs"] = [
                 {"id": int((sheet.get("properties") or {}).get("sheetId") or 0),
                  "title": str((sheet.get("properties") or {}).get("title") or "")}
