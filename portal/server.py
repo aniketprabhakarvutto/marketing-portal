@@ -26,6 +26,7 @@ from . import assistant
 from . import auth
 from . import automation
 from . import connections as conns
+from . import marketing_analytics
 from . import oauth
 from . import mcp
 from . import platform
@@ -205,6 +206,9 @@ GET_ROUTES = {
     "/api/web": lambda p: api.web(_p(p, "start"), _p(p, "end"), _p(p, "dim", "channel")),
     "/api/crm": lambda p: api.crm(_p(p, "start"), _p(p, "end")),
     "/api/data-quality": lambda p: api.data_quality(_p(p, "start"), _p(p, "end")),
+    "/api/marketing-analytics/workbooks": lambda p: {"workbooks": marketing_analytics.workbooks()},
+    "/api/marketing-analytics/tab": lambda p: marketing_analytics.read_tab(
+        _int(p, "connection_id", 0), _p(p, "tab"), _p(p, "range", "A1:ZZ500")),
     "/api/automation": lambda p: automation.get_settings(),
     "/api/automation/rules": lambda p: {"rules": automation.get_rules()},
     "/api/mcp": lambda p: {
@@ -246,6 +250,8 @@ POST_ROUTES = {
     "/api/destinations": lambda p, b: platform.save_object("data_destinations", b),
     "/api/jobs": lambda p, b: platform.save_object("scheduled_jobs", b),
     "/api/transformations": lambda p, b: platform.save_rule(b),
+    "/api/marketing-analytics/stats": lambda p, b: marketing_analytics.selection_stats(
+        b.get("values") or []),
     "/api/users": lambda p, b: platform.save_user(b),
 }
 
@@ -472,6 +478,7 @@ class Handler(BaseHTTPRequestHandler):
                 "/api/overview", "/api/timeseries", "/api/channels", "/api/campaigns",
                 "/api/search", "/api/ahrefs", "/api/web", "/api/crm",
                 "/api/data-quality", "/api/automation", "/api/planning",
+                "/api/marketing-analytics/workbooks", "/api/marketing-analytics/tab",
             }
             analyst = {
                 "/api/workspace", "/api/mcp", "/api/syncs", "/api/source",
@@ -485,6 +492,8 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/ui-preferences":
                 return True
             if path == "/api/explorer/query":
+                return True
+            if path == "/api/marketing-analytics/stats":
                 return True
             if path in {"/api/explorer/views", "/api/dashboards"}:
                 return role == "analyst"

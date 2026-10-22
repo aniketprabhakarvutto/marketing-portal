@@ -416,7 +416,10 @@ class GoogleSheetsProvider(Provider):
     table = "crm_daily"
     summary = "Import private Sheet tabs directly, with automatic refreshes."
     docs_url = "https://developers.google.com/sheets/api/guides/values"
-    oauth = _google_oauth("https://www.googleapis.com/auth/spreadsheets.readonly")
+    oauth = _google_oauth(
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive.metadata.readonly",
+    )
     fields = (
         *CLIENT_FIELDS,
         Field("spreadsheet_url", "Spreadsheet URL", kind="url",
@@ -444,6 +447,12 @@ class GoogleSheetsProvider(Provider):
         Field("constants", "Fixed values", required=False,
               placeholder='{"currency":"INR"}',
               help="Optional JSON object applied to every imported row."),
+        Field("analytics_role", "Marketing Analytics role", required=False,
+              placeholder="demand, supply, or mapping",
+              help="Tag a workbook as demand, supply, or mapping. Only demand and supply "
+                   "workbooks can receive automated campaign costs."),
+        Field("drive_folder_id", "Monthly workbook folder ID", required=False,
+              help="Optional Drive folder used to discover future monthly workbooks."),
     )
 
     @staticmethod

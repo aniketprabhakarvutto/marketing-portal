@@ -5,6 +5,8 @@ from decimal import Decimal
 from unittest.mock import patch
 
 from portal import marketing_analytics as analytics
+from portal import server
+from portal.providers import REGISTRY
 from portal.providers.base import Connection
 
 
@@ -66,6 +68,17 @@ class MarketingAnalyticsTests(unittest.TestCase):
         )
         with self.assertRaises(KeyError):
             analytics.write_cost_tab(7, "Costs", [[1]])
+
+    def test_routes_are_readable_and_stats_are_available_to_viewers(self):
+        handler = object.__new__(server.Handler)
+        self.assertTrue(handler._role_allows("viewer", "GET", "/api/marketing-analytics/workbooks"))
+        self.assertTrue(handler._role_allows("viewer", "GET", "/api/marketing-analytics/tab"))
+        self.assertTrue(handler._role_allows("viewer", "POST", "/api/marketing-analytics/stats"))
+
+    def test_google_sheet_grant_supports_write_and_month_discovery(self):
+        scopes = set(REGISTRY["google_sheets"].oauth.scopes)
+        self.assertIn("https://www.googleapis.com/auth/spreadsheets", scopes)
+        self.assertIn("https://www.googleapis.com/auth/drive.metadata.readonly", scopes)
 
 
 if __name__ == "__main__":
