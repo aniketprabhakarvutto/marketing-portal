@@ -217,7 +217,9 @@ def mapping_pairs(values, source_column="A", target_column="B", side_column="C")
     for row in values or []:
         source = str(row[source_index] if source_index < len(row) else "").strip()
         target = str(row[target_index] if target_index < len(row) else "").strip()
-        if not source or not target or source.casefold() in {"campaign", "campaign name", "source"}:
+        if not source or not target or source.casefold() in {
+            "campaign", "campaign name", "source", "platform name",
+        }:
             continue
         explicit = str(row[side_index] if side_index is not None and side_index < len(row) else "").strip().lower()
         if explicit in {"buy", "demand"}:

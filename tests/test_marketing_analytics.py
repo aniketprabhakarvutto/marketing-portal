@@ -54,6 +54,14 @@ class MarketingAnalyticsTests(unittest.TestCase):
         self.assertEqual(result["supply"], [("M Supply", "Meta_Supply_Lead")])
         self.assertEqual(result["unclassified"], ["Unknown"])
 
+    def test_mapping_rows_ignore_platform_name_header(self):
+        result = analytics.mapping_pairs([
+            ["Platform Name", "SuperLeap Name"],
+            ["Demand campaign", "Google_Demand_Delhi"],
+        ])
+        self.assertEqual(result["demand"], [("Demand campaign", "Google_Demand_Delhi")])
+        self.assertEqual(result["unclassified"], [])
+
     def test_month_key_supports_named_and_numeric_months(self):
         self.assertEqual(analytics._month_key("Marketing Analytics October 2026"), "2026-10")
         self.assertEqual(analytics._month_key("Marketing Analytics 10-2026"), "2026-10")

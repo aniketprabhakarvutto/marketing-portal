@@ -82,7 +82,12 @@ def run() -> dict:
         if not targets:
             raise RuntimeError(f"No enabled {role} workbook is configured")
         for target in targets:
-            tab = str(target.get("campaign_cost_sheet") or "Campaign Cost").strip()
+            tab = str(target.get("campaign_cost_sheet") or "").strip()
+            if not tab:
+                raise RuntimeError(
+                    f"{target.name} has no explicit campaign cost tab. "
+                    "Configure a staging or approved destination before enabling writes."
+                )
             written.append(marketing_analytics.write_cost_tab(target.id, tab, values))
     return {"date": day, "mode": "write" if written else "preview", "sources": sync_results,
             "previews": previews, "written": written}
