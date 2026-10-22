@@ -20,6 +20,7 @@ const PAGE_INFO = {
   connections: ["Data connections", "Manage source accounts and review every data refresh."],
   workspace: ["Reporting workspace", "Explore data, govern metrics, build dashboards, and manage delivery."],
   hub: ["Data hub", "Build reusable reporting views, metrics, exports, automations, and connections."],
+  "marketing-analytics": ["Marketing Analytics", "Review monthly Demand and Supply workbooks in a read-only view."],
   settings: ["Profile & settings", "Manage your portal profile, security, notifications, and appearance."],
 };
 
@@ -33,6 +34,7 @@ const state = {
   webDim: "channel", searchDim: "query",
   customMetrics: [], overview: null, meta: null,
   connections: [], activeSourceId: null,
+  marketingWorkbooks: [], marketingRows: [], marketingSelected: null,
 };
 let columnDrawerContext = null;
 let profilePreferences = {
@@ -2335,8 +2337,13 @@ function renderSourceNavigation(list = state.connections) {
   if (!nav) return;
   const connected = list.filter((c) => c.enabled && c.ready);
   const superleap = connected.filter((c) => c.provider === "superleap_crm" || (c.provider === "csv" && c.name.startsWith("Superleap CRM")));
-  const standalone = connected.filter((c) => c.provider !== "superleap_crm" && !(c.provider === "csv" && c.name.startsWith("Superleap CRM")));
-  const optionCount = standalone.length + (superleap.length ? 1 : 0);
+  const isMarketingWorkbook = (c) => c.provider === "google_sheets"
+    && (["demand", "supply"].includes(String(c.config?.analytics_role || "").toLowerCase())
+      || /marketing analytics/i.test(c.name || ""));
+  const marketingWorkbooks = connected.filter(isMarketingWorkbook);
+  const standalone = connected.filter((c) => c.provider !== "superleap_crm"
+    && !(c.provider === "csv" && c.name.startsWith("Superleap CRM")) && !isMarketingWorkbook(c));
+  const optionCount = standalone.length + (superleap.length ? 1 : 0) + (marketingWorkbooks.length ? 1 : 0);
   nav.hidden = !optionCount || currentUser?.role === "viewer";
   const select = $("#sourceSelect"), menu = $("#sourceMenu");
   if (!select || !menu) return;
@@ -2347,6 +2354,9 @@ function renderSourceNavigation(list = state.connections) {
       : superleap.some((c) => c.last_status === "empty") ? "err" : "idle";
   const items = [
     ...(superleap.length ? [{ route: "crm", name: "Superleap CRM", id: "superleap", health: superleapHealth, description: `${superleap.length} CRM connection${superleap.length === 1 ? "" : "s"}` }] : []),
+    ...(marketingWorkbooks.length ? [{ route: "marketing-analytics", name: "Marketing Analytics", id: "googlesheets",
+      health: marketingWorkbooks.some((c) => c.last_status === "error") ? "err" : "ok",
+      description: `${marketingWorkbooks.length} monthly workbook${marketingWorkbooks.length === 1 ? "" : "s"}` }] : []),
     ...standalone.map((connection) => ({ route: `source-${connection.id}`, name: connection.name, id: connection.provider, health: healthFor(connection), description: connectorCategory(connection.provider) })),
   ];
   const active = items.find((item) => item.route === activeTab);
@@ -2395,6 +2405,85 @@ function sourceValue(column, value) {
   if (["frequency", "position", "impression_share", "budget_lost_impression_share",
     "rank_lost_impression_share", "video_completion_rate"].includes(column)) return dec(Number(value));
   return typeof value === "number" ? nf.format(value) : esc(String(value));
+}
+
+function marketingStatValue(value) {
+  return value == null || Number.isNaN(Number(value)) ? "—" : nf1.format(Number(value));
+}
+
+async function updateMarketingSelection(rowIndex, columnIndex) {
+  const value = state.marketingRows[rowIndex]?.[columnIndex];
+  const stats = await api("/api/marketing-analytics/stats", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ values: [[value]] }),
+  });
+  state.marketingSelected = [rowIndex, columnIndex];
+  $$("#tblMarketingAnalytics td.is-selected").forEach((cell) => cell.classList.remove("is-selected"));
+  $(`#tblMarketingAnalytics td[data-row="${rowIndex}"][data-column="${columnIndex}"]`)?.classList.add("is-selected");
+  $("#marketingSelectionLabel").textContent = `Row ${rowIndex + 1}, column ${columnIndex + 1}`;
+  $("#marketingStatSum").textContent = marketingStatValue(stats.sum);
+  $("#marketingStatAvg").textContent = marketingStatValue(stats.avg);
+  $("#marketingStatMin").textContent = marketingStatValue(stats.min);
+  $("#marketingStatMax").textContent = marketingStatValue(stats.max);
+  $("#marketingStatCount").textContent = nf.format(stats.count || 0);
+  $("#marketingStatNumbers").textContent = nf.format(stats.count_numbers || 0);
+}
+
+function renderMarketingSheet(rows) {
+  state.marketingRows = rows || [];
+  state.marketingSelected = null;
+  const width = Math.max(1, ...state.marketingRows.map((row) => row.length));
+  const letters = Array.from({ length: width }, (_, index) => {
+    let value = "", number = index + 1;
+    while (number) { number--; value = String.fromCharCode(65 + number % 26) + value; number = Math.floor(number / 26); }
+    return value;
+  });
+  $("#tblMarketingAnalytics").innerHTML = `<thead><tr><th aria-hidden="true"></th>${letters.map((letter) => `<th scope="col">${letter}</th>`).join("")}</tr></thead><tbody>${state.marketingRows.map((row, rowIndex) => `<tr><th scope="row">${rowIndex + 1}</th>${letters.map((_, columnIndex) => `<td tabindex="0" data-row="${rowIndex}" data-column="${columnIndex}">${esc(row[columnIndex] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody>`;
+  $("#marketingSelectionLabel").textContent = "Select a cell to calculate.";
+  ["Sum", "Avg", "Min", "Max"].forEach((key) => $(`#marketingStat${key}`).textContent = "—");
+  $("#marketingStatCount").textContent = "0"; $("#marketingStatNumbers").textContent = "0";
+}
+
+async function loadMarketingTab() {
+  const workbookId = Number($("#marketingWorkbook").value || 0);
+  const tab = $("#marketingTab").value;
+  if (!workbookId || !tab) { renderMarketingSheet([]); return; }
+  const data = await api(`/api/marketing-analytics/tab?connection_id=${workbookId}&tab=${encodeURIComponent(tab)}&range=A1:ZZ500`);
+  renderMarketingSheet(data.rows || []);
+}
+
+async function loadMarketingAnalytics() {
+  const response = await api("/api/marketing-analytics/workbooks");
+  state.marketingWorkbooks = response.workbooks || [];
+  const workbookSelect = $("#marketingWorkbook"), tabSelect = $("#marketingTab");
+  const previous = Number(workbookSelect.value || 0);
+  workbookSelect.innerHTML = state.marketingWorkbooks.map((workbook) => `<option value="${workbook.connection_id}">${esc(workbook.month || "Month unavailable")} · ${esc(workbook.role)} · ${esc(workbook.name)}</option>`).join("");
+  if (state.marketingWorkbooks.some((workbook) => workbook.connection_id === previous)) workbookSelect.value = String(previous);
+  const workbook = state.marketingWorkbooks.find((item) => item.connection_id === Number(workbookSelect.value));
+  tabSelect.innerHTML = (workbook?.tabs || []).map((tab) => `<option value="${esc(tab.title)}">${esc(tab.title)}</option>`).join("");
+  const errors = state.marketingWorkbooks.filter((item) => item.status === "error");
+  const alert = $("#marketingAnalyticsAlert");
+  alert.hidden = !errors.length && Boolean(workbook);
+  alert.textContent = errors.length ? `${errors.length} workbook${errors.length === 1 ? "" : "s"} could not be opened. Reconnect Google Sheets from Connections.`
+    : "No Demand or Supply Marketing Analytics workbook is connected yet.";
+  if (workbook) await loadMarketingTab(); else renderMarketingSheet([]);
+  workbookSelect.onchange = async () => {
+    const selected = state.marketingWorkbooks.find((item) => item.connection_id === Number(workbookSelect.value));
+    tabSelect.innerHTML = (selected?.tabs || []).map((tab) => `<option value="${esc(tab.title)}">${esc(tab.title)}</option>`).join("");
+    await loadMarketingTab();
+  };
+  tabSelect.onchange = loadMarketingTab;
+  $("#tblMarketingAnalytics").onclick = (event) => {
+    const cell = event.target.closest("td[data-row]");
+    if (cell) updateMarketingSelection(Number(cell.dataset.row), Number(cell.dataset.column)).catch((error) => toast(error.message, "error"));
+  };
+  $("#tblMarketingAnalytics").onkeydown = (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const cell = event.target.closest("td[data-row]");
+    if (!cell) return;
+    event.preventDefault();
+    updateMarketingSelection(Number(cell.dataset.row), Number(cell.dataset.column)).catch((error) => toast(error.message, "error"));
+  };
 }
 
 async function loadSource(offset = 0, search = "") {
@@ -3345,6 +3434,7 @@ async function downloadAutomationReport() {
 const LOADERS = {
   overview: loadOverview, paid: loadPaid, web: loadWeb,
   search: loadSearch, crm: loadCrm, connections: loadConnections, workspace: loadWorkspace, hub: loadHub,
+  "marketing-analytics": loadMarketingAnalytics,
   settings: loadSettings,
 };
 let activeTab = "overview";

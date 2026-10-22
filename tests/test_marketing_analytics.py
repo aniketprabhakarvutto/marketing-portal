@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 from decimal import Decimal
+from pathlib import Path
 from unittest.mock import patch
 
 from portal import marketing_analytics as analytics
@@ -79,6 +80,15 @@ class MarketingAnalyticsTests(unittest.TestCase):
         scopes = set(REGISTRY["google_sheets"].oauth.scopes)
         self.assertIn("https://www.googleapis.com/auth/spreadsheets", scopes)
         self.assertIn("https://www.googleapis.com/auth/drive.metadata.readonly", scopes)
+
+    def test_read_only_workbook_view_is_present(self):
+        root = Path(__file__).resolve().parents[1] / "portal" / "web"
+        html = (root / "index.html").read_text(encoding="utf-8")
+        script = (root / "app.js").read_text(encoding="utf-8")
+        self.assertIn('id="tab-marketing-analytics"', html)
+        self.assertIn('id="tblMarketingAnalytics"', html)
+        self.assertIn('"marketing-analytics": loadMarketingAnalytics', script)
+        self.assertIn('/api/marketing-analytics/tab?', script)
 
 
 if __name__ == "__main__":

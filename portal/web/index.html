@@ -348,6 +348,32 @@
     <div id="sourceView"></div>
   </section>
 
+  <section id="tab-marketing-analytics" role="tabpanel" hidden>
+    <div class="marketing-analytics-head">
+      <div><p class="eyebrow">Connected source</p><h2>Marketing Analytics</h2>
+        <p class="sub">View Demand and Supply workbooks without editing the source sheets.</p></div>
+      <div class="marketing-analytics-controls">
+        <label>Month and funnel<select id="marketingWorkbook"></select></label>
+        <label>Sheet tab<select id="marketingTab"></select></label>
+      </div>
+    </div>
+    <div id="marketingAnalyticsAlert" class="callout" role="status" hidden></div>
+    <div class="marketing-sheet-layout">
+      <div class="card marketing-sheet-card">
+        <div class="tablewrap marketing-sheet-wrap"><table id="tblMarketingAnalytics" class="marketing-sheet"></table></div>
+      </div>
+      <aside class="card marketing-selection-stats" aria-label="Selected cell statistics">
+        <h3>Selection</h3><p id="marketingSelectionLabel" class="sub">Select a cell to calculate.</p>
+        <dl><div><dt>Sum</dt><dd id="marketingStatSum">—</dd></div>
+          <div><dt>Average</dt><dd id="marketingStatAvg">—</dd></div>
+          <div><dt>Minimum</dt><dd id="marketingStatMin">—</dd></div>
+          <div><dt>Maximum</dt><dd id="marketingStatMax">—</dd></div>
+          <div><dt>Count</dt><dd id="marketingStatCount">0</dd></div>
+          <div><dt>Count numbers</dt><dd id="marketingStatNumbers">0</dd></div></dl>
+      </aside>
+    </div>
+  </section>
+
   <!-- --------------------------------------------------------- workspace -->
   <section id="tab-workspace" role="tabpanel" aria-labelledby="nav-workspace" hidden>
     <div class="workspace-grid">
