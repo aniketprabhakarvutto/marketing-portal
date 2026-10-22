@@ -63,8 +63,6 @@ def run() -> dict:
         mapping_conn.get("mapping_target_column") or "B",
         mapping_conn.get("mapping_side_column") or "C",
     )
-    if mappings["unclassified"]:
-        raise RuntimeError("Unclassified campaign mappings: " + ", ".join(mappings["unclassified"][:20]))
     accounts = _accounts()
     rows = marketing_analytics.paid_rows(day)
     previews, written = {}, []
@@ -90,7 +88,8 @@ def run() -> dict:
                 )
             written.append(marketing_analytics.write_cost_tab(target.id, tab, values))
     return {"date": day, "mode": "write" if written else "preview", "sources": sync_results,
-            "previews": previews, "written": written}
+            "previews": previews, "ignored_inactive_mappings": mappings["unclassified"],
+            "written": written}
 
 
 if __name__ == "__main__":
