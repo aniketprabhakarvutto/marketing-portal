@@ -2411,16 +2411,27 @@ function marketingStatValue(value) {
   return value == null || Number.isNaN(Number(value)) ? "Not available" : nf1.format(Number(value));
 }
 
-async function updateMarketingSelection(rowIndex, columnIndex) {
-  const value = state.marketingRows[rowIndex]?.[columnIndex];
+async function updateMarketingSelection(rowIndex, columnIndex, extend = false) {
+  const anchor = extend && state.marketingSelected ? state.marketingSelected : [rowIndex, columnIndex];
+  const firstRow = Math.min(anchor[0], rowIndex), lastRow = Math.max(anchor[0], rowIndex);
+  const firstColumn = Math.min(anchor[1], columnIndex), lastColumn = Math.max(anchor[1], columnIndex);
+  const values = [];
+  for (let row = firstRow; row <= lastRow; row++) {
+    values.push(Array.from({ length: lastColumn - firstColumn + 1 }, (_, offset) => state.marketingRows[row]?.[firstColumn + offset]));
+  }
   const stats = await api("/api/marketing-analytics/stats", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ values: [[value]] }),
+    body: JSON.stringify({ values }),
   });
-  state.marketingSelected = [rowIndex, columnIndex];
+  if (!extend || !state.marketingSelected) state.marketingSelected = [rowIndex, columnIndex];
   $$("#tblMarketingAnalytics td.is-selected").forEach((cell) => cell.classList.remove("is-selected"));
-  $(`#tblMarketingAnalytics td[data-row="${rowIndex}"][data-column="${columnIndex}"]`)?.classList.add("is-selected");
-  $("#marketingSelectionLabel").textContent = `Row ${rowIndex + 1}, column ${columnIndex + 1}`;
+  $$("#tblMarketingAnalytics td[data-row]").forEach((cell) => {
+    const row = Number(cell.dataset.row), column = Number(cell.dataset.column);
+    cell.classList.toggle("is-selected", row >= firstRow && row <= lastRow && column >= firstColumn && column <= lastColumn);
+  });
+  $("#marketingSelectionLabel").textContent = firstRow === lastRow && firstColumn === lastColumn
+    ? `Row ${firstRow + 1}, column ${firstColumn + 1}`
+    : `Rows ${firstRow + 1} to ${lastRow + 1}, columns ${firstColumn + 1} to ${lastColumn + 1}`;
   $("#marketingStatSum").textContent = marketingStatValue(stats.sum);
   $("#marketingStatAvg").textContent = marketingStatValue(stats.avg);
   $("#marketingStatMin").textContent = marketingStatValue(stats.min);
@@ -2476,7 +2487,7 @@ async function loadMarketingAnalytics() {
   tabSelect.onchange = loadMarketingTab;
   $("#tblMarketingAnalytics").onclick = (event) => {
     const cell = event.target.closest("td[data-row]");
-    if (cell) updateMarketingSelection(Number(cell.dataset.row), Number(cell.dataset.column)).catch((error) => toast(error.message, "error"));
+    if (cell) updateMarketingSelection(Number(cell.dataset.row), Number(cell.dataset.column), event.shiftKey).catch((error) => toast(error.message, "error"));
   };
   $("#tblMarketingAnalytics").onkeydown = (event) => {
     if (event.key !== "Enter" && event.key !== " ") return;
