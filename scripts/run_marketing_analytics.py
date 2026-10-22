@@ -65,27 +65,33 @@ def run() -> dict:
     )
     accounts = _accounts()
     rows = marketing_analytics.paid_rows(day)
-    previews, written = {}, []
+    previews, written, prepared_by_role = {}, [], {}
     for role in ("demand", "supply"):
-        prepared = marketing_analytics.prepare_cost_rows(rows, mappings[role], day, accounts)
+        other_role = "supply" if role == "demand" else "demand"
+        prepared = marketing_analytics.prepare_cost_rows(
+            rows, mappings[role], day, accounts,
+            other_side_campaigns=[source for source, _target in mappings[other_role]],
+        )
         previews[role] = {"rows": len(prepared["rows"]), "unmapped": prepared["unmapped"]}
         if prepared["unmapped"]:
             raise RuntimeError(f"{role.title()} has unmapped campaigns: " + ", ".join(prepared["unmapped"][:20]))
-        if os.getenv("MARKETING_ANALYTICS_WRITE", "").strip() != "1":
-            continue
-        values = [["Date", "Platform", "Source campaign", "Mapped campaign", "Cost"]]
-        values.extend([[row[0], row[1], row[2], row[3], str(row[4])] for row in prepared["rows"]])
-        targets = [conn for conn in connections.all_connections(provider="google_sheets", enabled_only=True)
-                   if marketing_analytics._role(conn) == role]
-        if not targets:
-            raise RuntimeError(f"No enabled {role} workbook is configured")
-        for target in targets:
-            tab = str(target.get("campaign_cost_sheet") or "").strip()
-            if not tab:
-                raise RuntimeError(
-                    f"{target.name} has no explicit campaign cost tab. "
-                    "Configure a staging or approved destination before enabling writes."
-                )
+        prepared_by_role[role] = prepared
+    if os.getenv("MARKETING_ANALYTICS_WRITE", "").strip() == "1":
+        destinations = []
+        for role in ("demand", "supply"):
+            targets = [conn for conn in connections.all_connections(provider="google_sheets", enabled_only=True)
+                       if marketing_analytics._role(conn) == role]
+            if not targets:
+                raise RuntimeError(f"No enabled {role} workbook is configured")
+            for target in targets:
+                tab = str(target.get("campaign_cost_sheet") or "").strip()
+                if tab != "__vortex_cost_test":
+                    raise RuntimeError("Only the __vortex_cost_test staging tab is supported until the real sheet layout is verified")
+                destinations.append((role, target, tab))
+        for role, target, tab in destinations:
+            values = [["Date", "Platform", "Source campaign", "Mapped campaign", "Cost"]]
+            values.extend([[row[0], row[1], row[2], row[3], str(row[4])]
+                           for row in prepared_by_role[role]["rows"]])
             written.append(marketing_analytics.write_cost_tab(target.id, tab, values))
     return {"date": day, "mode": "write" if written else "preview", "sources": sync_results,
             "previews": previews, "ignored_inactive_mappings": mappings["unclassified"],

@@ -231,8 +231,11 @@ def mapping_pairs(values, source_column="A", target_column="B", side_column="C")
         elif explicit in {"sell", "supply"}:
             side = "supply"
         else:
-            text = f"{source} {target}".casefold()
-            side = "demand" if "demand" in text else "supply" if "supply" in text else ""
+            target_text = target.casefold()
+            source_text = source.casefold()
+            text = target_text if ("demand" in target_text or "supply" in target_text) else source_text
+            side = "demand" if "demand" in text and "supply" not in text else \
+                   "supply" if "supply" in text and "demand" not in text else ""
         if side:
             result[side].append((source, target))
         else:
@@ -240,7 +243,8 @@ def mapping_pairs(values, source_column="A", target_column="B", side_column="C")
     return result
 
 
-def prepare_cost_rows(source_rows, mappings, day: str, allowed_accounts: dict[str, set[str]]) -> dict:
+def prepare_cost_rows(source_rows, mappings, day: str, allowed_accounts: dict[str, set[str]],
+                      other_side_campaigns=()) -> dict:
     """Map exact campaign names and reject incomplete or ambiguous exports."""
     date.fromisoformat(day)
     lookup = {}
@@ -254,6 +258,9 @@ def prepare_cost_rows(source_rows, mappings, day: str, allowed_accounts: dict[st
         lookup[key] = target
     grouped = defaultdict(Decimal)
     unmapped, sources_seen = set(), set()
+    other_side = {str(name).strip().casefold() for name in other_side_campaigns}
+    if set(lookup) & other_side:
+        raise ValueError("Campaign mapping belongs to both demand and supply")
     for row in source_rows:
         platform = str(row.get("source") or "")
         if platform not in allowed_accounts or str(row.get("account_id") or "") not in allowed_accounts[platform]:
@@ -274,6 +281,8 @@ def prepare_cost_rows(source_rows, mappings, day: str, allowed_accounts: dict[st
         sources_seen.add(platform)
         mapped = lookup.get(campaign.casefold())
         if mapped is None:
+            if campaign.casefold() in other_side:
+                continue
             unmapped.add(campaign)
             continue
         grouped[(platform, campaign, mapped)] += amount

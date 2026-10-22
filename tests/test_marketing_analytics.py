@@ -62,6 +62,19 @@ class MarketingAnalyticsTests(unittest.TestCase):
         self.assertEqual(result["demand"], [("Demand campaign", "Google_Demand_Delhi")])
         self.assertEqual(result["unclassified"], [])
 
+    def test_mapping_uses_target_funnel_and_skips_other_funnel_costs(self):
+        result = analytics.mapping_pairs([["Demand remarketing", "Meta_Supply_REM"]])
+        self.assertEqual(result["supply"], [("Demand remarketing", "Meta_Supply_REM")])
+        prepared = analytics.prepare_cost_rows(
+            self.rows, [("Google campaign", "Google_Demand")], "2026-10-21",
+            self.accounts, other_side_campaigns=["Meta campaign"],
+        )
+        self.assertEqual(prepared["unmapped"], [])
+        self.assertEqual(len(prepared["rows"]), 1)
+        with self.assertRaisesRegex(ValueError, "both demand and supply"):
+            analytics.prepare_cost_rows(self.rows, self.mappings, "2026-10-21", self.accounts,
+                                        other_side_campaigns=["Meta campaign"])
+
     def test_month_key_supports_named_and_numeric_months(self):
         self.assertEqual(analytics._month_key("Marketing Analytics October 2026"), "2026-10")
         self.assertEqual(analytics._month_key("Marketing Analytics 10-2026"), "2026-10")
