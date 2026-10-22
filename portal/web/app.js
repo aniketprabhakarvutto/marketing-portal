@@ -2339,7 +2339,7 @@ function renderSourceNavigation(list = state.connections) {
   const superleap = connected.filter((c) => c.provider === "superleap_crm" || (c.provider === "csv" && c.name.startsWith("Superleap CRM")));
   const isMarketingWorkbook = (c) => c.provider === "google_sheets"
     && (["demand", "supply"].includes(String(c.config?.analytics_role || "").toLowerCase())
-      || /marketing analytics/i.test(c.name || ""));
+      || /^(demand|supply) /i.test(c.name || ""));
   const marketingWorkbooks = connected.filter(isMarketingWorkbook);
   const standalone = connected.filter((c) => c.provider !== "superleap_crm"
     && !(c.provider === "csv" && c.name.startsWith("Superleap CRM")) && !isMarketingWorkbook(c));
@@ -2445,10 +2445,11 @@ function renderMarketingSheet(rows) {
 }
 
 async function loadMarketingTab() {
-  const workbookId = Number($("#marketingWorkbook").value || 0);
+  const [connectionValue, spreadsheetId] = String($("#marketingWorkbook").value || "").split("|");
+  const workbookId = Number(connectionValue || 0);
   const tab = $("#marketingTab").value;
   if (!workbookId || !tab) { renderMarketingSheet([]); return; }
-  const data = await api(`/api/marketing-analytics/tab?connection_id=${workbookId}&tab=${encodeURIComponent(tab)}&range=A1:ZZ500`);
+  const data = await api(`/api/marketing-analytics/tab?connection_id=${workbookId}&spreadsheet_id=${encodeURIComponent(spreadsheetId || "")}&tab=${encodeURIComponent(tab)}&range=A1:ZZ500`);
   renderMarketingSheet(data.rows || []);
 }
 
@@ -2456,10 +2457,10 @@ async function loadMarketingAnalytics() {
   const response = await api("/api/marketing-analytics/workbooks");
   state.marketingWorkbooks = response.workbooks || [];
   const workbookSelect = $("#marketingWorkbook"), tabSelect = $("#marketingTab");
-  const previous = Number(workbookSelect.value || 0);
-  workbookSelect.innerHTML = state.marketingWorkbooks.map((workbook) => `<option value="${workbook.connection_id}">${esc(workbook.month || "Month unavailable")} · ${esc(workbook.role)} · ${esc(workbook.name)}</option>`).join("");
-  if (state.marketingWorkbooks.some((workbook) => workbook.connection_id === previous)) workbookSelect.value = String(previous);
-  const workbook = state.marketingWorkbooks.find((item) => item.connection_id === Number(workbookSelect.value));
+  const previous = workbookSelect.value;
+  workbookSelect.innerHTML = state.marketingWorkbooks.map((workbook) => `<option value="${workbook.connection_id}|${esc(workbook.spreadsheet_id)}">${esc(workbook.month || "Month unavailable")} · ${esc(workbook.role)} · ${esc(workbook.name)}</option>`).join("");
+  if ([...workbookSelect.options].some((option) => option.value === previous)) workbookSelect.value = previous;
+  const workbook = state.marketingWorkbooks.find((item) => `${item.connection_id}|${item.spreadsheet_id}` === workbookSelect.value);
   tabSelect.innerHTML = (workbook?.tabs || []).map((tab) => `<option value="${esc(tab.title)}">${esc(tab.title)}</option>`).join("");
   const errors = state.marketingWorkbooks.filter((item) => item.status === "error");
   const alert = $("#marketingAnalyticsAlert");
@@ -2468,7 +2469,7 @@ async function loadMarketingAnalytics() {
     : "No Demand or Supply Marketing Analytics workbook is connected yet.";
   if (workbook) await loadMarketingTab(); else renderMarketingSheet([]);
   workbookSelect.onchange = async () => {
-    const selected = state.marketingWorkbooks.find((item) => item.connection_id === Number(workbookSelect.value));
+    const selected = state.marketingWorkbooks.find((item) => `${item.connection_id}|${item.spreadsheet_id}` === workbookSelect.value);
     tabSelect.innerHTML = (selected?.tabs || []).map((tab) => `<option value="${esc(tab.title)}">${esc(tab.title)}</option>`).join("");
     await loadMarketingTab();
   };

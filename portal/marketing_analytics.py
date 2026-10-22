@@ -44,9 +44,9 @@ def _role(conn) -> str:
     if role in {"demand", "supply", "mapping"}:
         return role
     name = conn.name.casefold()
-    if "demand" in name and "marketing" in name:
+    if name.startswith("demand "):
         return "demand"
-    if "supply" in name and "marketing" in name:
+    if name.startswith("supply "):
         return "supply"
     return ""
 
@@ -66,13 +66,29 @@ def _month_key(title: str) -> str:
     return f"{int(year_match.group(1)):04d}-{month:02d}"
 
 
-def _metadata(conn) -> dict:
-    spreadsheet_id = _spreadsheet_id(conn)
+def _metadata(conn, spreadsheet_id: str = "") -> dict:
+    spreadsheet_id = spreadsheet_id or _spreadsheet_id(conn)
     return get(
         f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}",
         headers={"Authorization": f"Bearer {_token(conn)}"},
         params={"fields": "spreadsheetId,properties.title,sheets.properties"},
     )
+
+
+def _drive_files(conn) -> list[dict]:
+    folder_id = str(conn.get("drive_folder_id") or "").strip()
+    if not folder_id:
+        return []
+    body = get(
+        "https://www.googleapis.com/drive/v3/files",
+        headers={"Authorization": f"Bearer {_token(conn)}"},
+        params={
+            "q": f"'{folder_id}' in parents and trashed=false and mimeType='application/vnd.google-apps.spreadsheet'",
+            "fields": "files(id,name,modifiedTime)", "pageSize": 1000,
+            "orderBy": "name desc",
+        },
+    )
+    return body.get("files") or []
 
 
 def workbooks() -> list[dict]:
@@ -107,10 +123,34 @@ def workbooks() -> list[dict]:
             item["status"] = "error"
             item["message"] = str(exc)
         out.append(item)
+        if item["status"] == "error":
+            continue
+        try:
+            for discovered in _drive_files(conn):
+                spreadsheet_id = str(discovered.get("id") or "")
+                if not spreadsheet_id or any(row["spreadsheet_id"] == spreadsheet_id for row in out):
+                    continue
+                discovered_metadata = _metadata(conn, spreadsheet_id)
+                out.append({
+                    "connection_id": conn.id, "name": str(discovered.get("name") or ""),
+                    "role": role, "month": _month_key(str(discovered.get("name") or "")),
+                    "spreadsheet_id": spreadsheet_id,
+                    "tabs": [
+                        {"id": int((sheet.get("properties") or {}).get("sheetId") or 0),
+                         "title": str((sheet.get("properties") or {}).get("title") or "")}
+                        for sheet in discovered_metadata.get("sheets") or []
+                        if (sheet.get("properties") or {}).get("title")
+                    ],
+                    "status": "discovered", "message": "Discovered from the configured Drive folder.",
+                })
+        except Exception as exc:
+            item["status"] = "error"
+            item["message"] = str(exc)
     return sorted(out, key=lambda item: (item["month"], item["role"], item["name"]), reverse=True)
 
 
-def read_tab(connection_id: int, tab: str, cell_range: str = "A1:ZZ500") -> dict:
+def read_tab(connection_id: int, tab: str, cell_range: str = "A1:ZZ500",
+             spreadsheet_id: str = "") -> dict:
     conn = conns.get(connection_id)
     if not conn or conn.provider != "google_sheets" or not conn.enabled or _role(conn) not in {"demand", "supply"}:
         raise KeyError("Marketing Analytics workbook not found")
@@ -119,7 +159,12 @@ def read_tab(connection_id: int, tab: str, cell_range: str = "A1:ZZ500") -> dict
     cell_range = cell_range.strip().upper()
     if not _CELL_RANGE.fullmatch(cell_range):
         raise ValueError("Use a bounded cell range such as A1:Z200")
-    spreadsheet_id = _spreadsheet_id(conn)
+    saved_id = _spreadsheet_id(conn)
+    spreadsheet_id = str(spreadsheet_id or saved_id).strip()
+    if spreadsheet_id != saved_id:
+        discovered_ids = {str(item.get("id") or "") for item in _drive_files(conn)}
+        if spreadsheet_id not in discovered_ids:
+            raise KeyError("Workbook is not in the configured Marketing Analytics folder")
     escaped = quote(f"'{tab.replace(chr(39), chr(39) * 2)}'!{cell_range}", safe="")
     body = get(
         f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/{escaped}",

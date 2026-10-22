@@ -208,7 +208,8 @@ GET_ROUTES = {
     "/api/data-quality": lambda p: api.data_quality(_p(p, "start"), _p(p, "end")),
     "/api/marketing-analytics/workbooks": lambda p: {"workbooks": marketing_analytics.workbooks()},
     "/api/marketing-analytics/tab": lambda p: marketing_analytics.read_tab(
-        _int(p, "connection_id", 0), _p(p, "tab"), _p(p, "range", "A1:ZZ500")),
+        _int(p, "connection_id", 0), _p(p, "tab"), _p(p, "range", "A1:ZZ500"),
+        _p(p, "spreadsheet_id")),
     "/api/automation": lambda p: automation.get_settings(),
     "/api/automation/rules": lambda p: {"rules": automation.get_rules()},
     "/api/mcp": lambda p: {

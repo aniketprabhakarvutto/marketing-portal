@@ -48,6 +48,17 @@ class MarketingAnalyticsTests(unittest.TestCase):
         self.assertEqual(analytics._month_key("Marketing Analytics 10-2026"), "2026-10")
         self.assertEqual(analytics._month_key("Marketing Analytics"), "")
 
+    @patch("portal.marketing_analytics.get")
+    @patch("portal.marketing_analytics._token", return_value="access")
+    def test_drive_discovery_is_bounded_to_configured_folder(self, _token, get):
+        conn = Connection(3, "google_sheets", "Demand Google Sheet", {
+            "spreadsheet_url": "12345678901234567890", "drive_folder_id": "folder-1",
+        }, {}, True)
+        get.return_value = {"files": [{"id": "sheet-1", "name": "Marketing Analytics October 2026"}]}
+        self.assertEqual(analytics._drive_files(conn)[0]["id"], "sheet-1")
+        params = get.call_args.kwargs["params"]
+        self.assertIn("'folder-1' in parents", params["q"])
+
     @patch("portal.marketing_analytics.request")
     @patch("portal.marketing_analytics._token", return_value="access")
     @patch("portal.marketing_analytics.conns.get")
