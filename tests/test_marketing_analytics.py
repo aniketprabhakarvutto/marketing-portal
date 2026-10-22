@@ -67,6 +67,12 @@ class MarketingAnalyticsTests(unittest.TestCase):
         self.assertEqual(analytics._month_key("Marketing Analytics 10-2026"), "2026-10")
         self.assertEqual(analytics._month_key("Marketing Analytics"), "")
 
+    def test_disabled_workbook_requires_explicit_view_only_flag(self):
+        conn = Connection(3, "google_sheets", "Demand Test", {}, {}, False)
+        self.assertFalse(analytics._viewable(conn))
+        conn.config["analytics_view_only"] = True
+        self.assertTrue(analytics._viewable(conn))
+
     @patch("portal.marketing_analytics.get")
     @patch("portal.marketing_analytics._token", return_value="access")
     def test_drive_discovery_is_bounded_to_configured_folder(self, _token, get):

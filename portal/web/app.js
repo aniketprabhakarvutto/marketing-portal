@@ -2340,7 +2340,8 @@ function renderSourceNavigation(list = state.connections) {
   const isMarketingWorkbook = (c) => c.provider === "google_sheets"
     && (["demand", "supply"].includes(String(c.config?.analytics_role || "").toLowerCase())
       || /^(demand|supply) /i.test(c.name || ""));
-  const marketingWorkbooks = connected.filter(isMarketingWorkbook);
+  const marketingWorkbooks = list.filter((c) => c.ready && isMarketingWorkbook(c)
+    && (c.enabled || c.config?.analytics_view_only === true));
   const standalone = connected.filter((c) => c.provider !== "superleap_crm"
     && !(c.provider === "csv" && c.name.startsWith("Superleap CRM")) && !isMarketingWorkbook(c));
   const optionCount = standalone.length + (superleap.length ? 1 : 0) + (marketingWorkbooks.length ? 1 : 0);

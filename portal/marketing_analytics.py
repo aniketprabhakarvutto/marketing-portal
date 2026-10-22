@@ -51,6 +51,10 @@ def _role(conn) -> str:
     return ""
 
 
+def _viewable(conn) -> bool:
+    return bool(conn.enabled or conn.get("analytics_view_only") is True)
+
+
 def _month_key(title: str) -> str:
     text = title.casefold()
     year_match = re.search(r"\b(20\d{2})\b", text)
@@ -94,9 +98,9 @@ def _drive_files(conn) -> list[dict]:
 def workbooks() -> list[dict]:
     """Return only explicitly saved Marketing Analytics workbooks."""
     out = []
-    for conn in conns.all_connections(provider="google_sheets", enabled_only=True):
+    for conn in conns.all_connections(provider="google_sheets"):
         role = _role(conn)
-        if role not in {"demand", "supply"}:
+        if role not in {"demand", "supply"} or not _viewable(conn):
             continue
         item = {
             "connection_id": conn.id,
@@ -152,7 +156,7 @@ def workbooks() -> list[dict]:
 def read_tab(connection_id: int, tab: str, cell_range: str = "A1:ZZ500",
              spreadsheet_id: str = "") -> dict:
     conn = conns.get(connection_id)
-    if not conn or conn.provider != "google_sheets" or not conn.enabled or _role(conn) not in {"demand", "supply"}:
+    if not conn or conn.provider != "google_sheets" or not _viewable(conn) or _role(conn) not in {"demand", "supply"}:
         raise KeyError("Marketing Analytics workbook not found")
     if not tab or len(tab) > 100:
         raise ValueError("Choose a valid sheet tab")
