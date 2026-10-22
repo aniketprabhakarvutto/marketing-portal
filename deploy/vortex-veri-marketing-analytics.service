@@ -1,0 +1,9 @@
+[Unit]
+Description=Vortex Veri Marketing Analytics daily update
+Requires=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/vortex-veri
+ExecStart=/usr/bin/docker compose -f docker-compose.production.yml --profile automation run --rm marketing-analytics-runner

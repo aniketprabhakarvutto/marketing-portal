@@ -200,6 +200,40 @@ def selection_stats(values) -> dict:
     }
 
 
+def _column_index(letter: str) -> int:
+    letter = str(letter or "").strip().upper()
+    if not re.fullmatch(r"[A-Z]{1,3}", letter):
+        raise ValueError("Mapping columns must be letters such as A, B, or AA")
+    result = 0
+    for char in letter:
+        result = result * 26 + ord(char) - 64
+    return result - 1
+
+
+def mapping_pairs(values, source_column="A", target_column="B", side_column="C") -> dict:
+    source_index, target_index = _column_index(source_column), _column_index(target_column)
+    side_index = _column_index(side_column) if side_column else None
+    result = {"demand": [], "supply": [], "unclassified": []}
+    for row in values or []:
+        source = str(row[source_index] if source_index < len(row) else "").strip()
+        target = str(row[target_index] if target_index < len(row) else "").strip()
+        if not source or not target or source.casefold() in {"campaign", "campaign name", "source"}:
+            continue
+        explicit = str(row[side_index] if side_index is not None and side_index < len(row) else "").strip().lower()
+        if explicit in {"buy", "demand"}:
+            side = "demand"
+        elif explicit in {"sell", "supply"}:
+            side = "supply"
+        else:
+            text = f"{source} {target}".casefold()
+            side = "demand" if "demand" in text else "supply" if "supply" in text else ""
+        if side:
+            result[side].append((source, target))
+        else:
+            result["unclassified"].append(source)
+    return result
+
+
 def prepare_cost_rows(source_rows, mappings, day: str, allowed_accounts: dict[str, set[str]]) -> dict:
     """Map exact campaign names and reject incomplete or ambiguous exports."""
     date.fromisoformat(day)

@@ -453,6 +453,15 @@ class GoogleSheetsProvider(Provider):
                    "workbooks can receive automated campaign costs."),
         Field("drive_folder_id", "Monthly workbook folder ID", required=False,
               help="Optional Drive folder used to discover future monthly workbooks."),
+        Field("campaign_cost_sheet", "Campaign cost tab", required=False,
+              placeholder="Campaign Cost",
+              help="Demand or Supply tab that receives verified daily campaign costs."),
+        Field("mapping_source_column", "Mapping source column", required=False,
+              placeholder="A"),
+        Field("mapping_target_column", "Mapping target column", required=False,
+              placeholder="B"),
+        Field("mapping_side_column", "Mapping funnel column", required=False,
+              placeholder="C", help="Optional column containing demand or supply."),
     )
 
     @staticmethod

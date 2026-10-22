@@ -8,3 +8,13 @@ services:
     volumes:
       - /srv/vortex-veri/data:/data
       - /srv/vortex-veri/backups:/app/backups
+  marketing-analytics-runner:
+    build: .
+    profiles: ["automation"]
+    env_file: deploy/production.env
+    environment:
+      MARKETING_ANALYTICS_WRITE: "1"
+    volumes:
+      - /srv/vortex-veri/data:/data
+      - /srv/vortex-veri/backups:/app/backups
+    command: ["python", "scripts/run_marketing_analytics.py"]

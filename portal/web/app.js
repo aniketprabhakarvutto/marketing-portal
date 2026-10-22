@@ -2408,7 +2408,7 @@ function sourceValue(column, value) {
 }
 
 function marketingStatValue(value) {
-  return value == null || Number.isNaN(Number(value)) ? "—" : nf1.format(Number(value));
+  return value == null || Number.isNaN(Number(value)) ? "Not available" : nf1.format(Number(value));
 }
 
 async function updateMarketingSelection(rowIndex, columnIndex) {
@@ -2440,7 +2440,7 @@ function renderMarketingSheet(rows) {
   });
   $("#tblMarketingAnalytics").innerHTML = `<thead><tr><th aria-hidden="true"></th>${letters.map((letter) => `<th scope="col">${letter}</th>`).join("")}</tr></thead><tbody>${state.marketingRows.map((row, rowIndex) => `<tr><th scope="row">${rowIndex + 1}</th>${letters.map((_, columnIndex) => `<td tabindex="0" data-row="${rowIndex}" data-column="${columnIndex}">${esc(row[columnIndex] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody>`;
   $("#marketingSelectionLabel").textContent = "Select a cell to calculate.";
-  ["Sum", "Avg", "Min", "Max"].forEach((key) => $(`#marketingStat${key}`).textContent = "—");
+  ["Sum", "Avg", "Min", "Max"].forEach((key) => $(`#marketingStat${key}`).textContent = "Not available");
   $("#marketingStatCount").textContent = "0"; $("#marketingStatNumbers").textContent = "0";
 }
 

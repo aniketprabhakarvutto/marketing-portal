@@ -43,6 +43,17 @@ class MarketingAnalyticsTests(unittest.TestCase):
             "count": 4, "count_numbers": 3,
         })
 
+    def test_mapping_rows_split_demand_supply_and_flag_unknown(self):
+        result = analytics.mapping_pairs([
+            ["Source", "Target", "Side"],
+            ["G Demand", "Google_Demand_Search", ""],
+            ["M Supply", "Meta_Supply_Lead", "sell"],
+            ["Unknown", "Renamed", ""],
+        ])
+        self.assertEqual(result["demand"], [("G Demand", "Google_Demand_Search")])
+        self.assertEqual(result["supply"], [("M Supply", "Meta_Supply_Lead")])
+        self.assertEqual(result["unclassified"], ["Unknown"])
+
     def test_month_key_supports_named_and_numeric_months(self):
         self.assertEqual(analytics._month_key("Marketing Analytics October 2026"), "2026-10")
         self.assertEqual(analytics._month_key("Marketing Analytics 10-2026"), "2026-10")

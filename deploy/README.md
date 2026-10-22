@@ -132,3 +132,38 @@ This replaces the application container while retaining the server database in
 `/srv/vortex-veri/data`. Scheduled database backups are stored separately in
 `/srv/vortex-veri/backups`. Copy both folders to storage outside the server
 before upgrades.
+
+## Marketing Analytics automation
+
+The independent runner refreshes the saved Google Ads, Meta Ads, and Superleap
+connections, validates campaign mappings, and writes campaign costs only when
+both advertising platforms returned verified INR data. It stops on missing or
+ambiguous mappings instead of writing partial data.
+
+Before enabling writes, tag Google Sheets connections with the appropriate
+Marketing Analytics role: `demand`, `supply`, or `mapping`. Set the Demand and
+Supply campaign-cost tab names and set the mapping workbook's source, target,
+and funnel columns. Reconnect Google Sheets once so the updated Sheets and
+Drive scopes are granted.
+
+Run a non-writing preview first:
+
+```bash
+docker compose -f docker-compose.production.yml --profile automation run --rm -e MARKETING_ANALYTICS_WRITE=0 marketing-analytics-runner
+```
+
+After the preview reports both platforms, zero unmapped campaigns, and the
+expected row counts, install the provided systemd unit and timer under
+`/etc/systemd/system/`. Change the service `WorkingDirectory` if the repository
+is not located at `/opt/vortex-veri`, then enable it:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now vortex-veri-marketing-analytics.timer
+systemctl list-timers vortex-veri-marketing-analytics.timer
+```
+
+The timer is persistent and uses `Asia/Kolkata`, so a missed run starts when the
+server returns. It is independent of the laptop, but it still requires an
+always-running Linux host with the portal database and encrypted connector
+credentials.
