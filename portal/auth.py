@@ -26,13 +26,13 @@ _login_inflight: dict[str, int] = {}
 _login_hash_slots = threading.BoundedSemaphore(4)
 
 UI_PREFERENCE_KEYS = frozenset({
-    "savedPortalViews", "customMetrics", "calendarDatePresets", "campaignColumns",
+    "savedPortalViews", "marketingDashboardViews", "customMetrics", "calendarDatePresets", "campaignColumns",
     "portalTableColumns", "portalTableWidths", "portalTableHeights",
     "portalTableRowHeights", "campaignWidths", "campaignRowHeights",
     "campaignRowHeight", "portalTableDensity", "portalFreezeFirstColumn",
     "portalTableStripes",
 })
-_UI_ARRAY_KEYS = frozenset({"savedPortalViews", "customMetrics", "calendarDatePresets", "campaignColumns"})
+_UI_ARRAY_KEYS = frozenset({"savedPortalViews", "marketingDashboardViews", "customMetrics", "calendarDatePresets", "campaignColumns"})
 _UI_OBJECT_KEYS = frozenset({"portalTableColumns", "portalTableWidths", "portalTableHeights",
                              "portalTableRowHeights", "campaignWidths", "campaignRowHeights"})
 
@@ -75,7 +75,7 @@ def _validate_ui_value(key: str, value: Any) -> str:
             raise ValueError("Campaign row height is invalid.") from None
         if str(value) not in {str(height), str(float(height))} or not 28 <= height <= 160:
             raise ValueError("Campaign row height is invalid.")
-    if key == "savedPortalViews" and len(value) > 30:
+    if key in {"savedPortalViews", "marketingDashboardViews"} and len(value) > 30:
         raise ValueError("Too many saved views.")
     if key == "calendarDatePresets" and len(value) > 8:
         raise ValueError("Too many date presets.")

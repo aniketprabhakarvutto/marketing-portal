@@ -11,7 +11,7 @@ from http.server import ThreadingHTTPServer
 from tempfile import TemporaryDirectory
 
 from portal import auth, db, server
-from portal.config import APP
+from portal.config import APP, effective_secure_cookie
 
 
 class AuthBoundaryTests(unittest.TestCase):
@@ -85,6 +85,16 @@ class AuthBoundaryTests(unittest.TestCase):
         self.assertEqual(self.request("GET", "/api/overview")[0], 401)
         self.assertEqual(self.request("GET", "/api/auth/status")[0], 200)
         self.assertEqual(self.request("GET", "/static/login.js")[0], 200)
+
+        login_script = (server.WEB / "login.js").read_text()
+        self.assertNotIn("waitForAuthenticatedSession", login_script)
+        self.assertIn("location.replace(`/${location.hash}`)", login_script)
+
+    def test_loopback_http_never_emits_secure_session_cookies(self) -> None:
+        self.assertFalse(effective_secure_cookie("127.0.0.1", True))
+        self.assertFalse(effective_secure_cookie("::1", True))
+        self.assertFalse(effective_secure_cookie("localhost", True))
+        self.assertTrue(effective_secure_cookie("0.0.0.0", True))
 
     def test_readiness_reports_database_failure_without_leaking_details(self) -> None:
         self.assertEqual(self.request("GET", "/healthz")[0], 200)

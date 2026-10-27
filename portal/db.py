@@ -16,6 +16,8 @@ import threading
 from typing import Any, Iterable, Sequence
 
 from .config import APP
+from .models import TABLE_MODELS
+from .migrations import migrate as apply_migrations
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS paid_metrics (
@@ -378,11 +380,100 @@ CONFLICT_KEYS = {
     "crm_campaign_daily": ("connection_id", "date", "channel", "campaign_id", "campaign_name", "lead_type"),
 }
 
+ALL_TABLES = tuple(model.table for model in TABLE_MODELS)
+
 log = logging.getLogger("portal.db")
 
 _local = threading.local()
 _write_lock = threading.Lock()
 _audit_context = threading.local()
+
+
+def using_postgres() -> bool:
+    """Whether the process was configured with a PostgreSQL connection URL."""
+    return APP.database_url.startswith(("postgresql://", "postgres://"))
+
+
+def _postgres_sql(sql: str) -> str:
+    """Translate the small SQLite compatibility surface used by the app."""
+    sql = sql.replace("BEGIN IMMEDIATE", "BEGIN")
+    sql = sql.replace("datetime('now')", "CURRENT_TIMESTAMP")
+    # The application uses qmark parameters to keep SQLite development simple.
+    # Queries contain no literal question marks, so this is safe and preserves
+    # one shared query layer for PostgreSQL's pyformat driver.
+    return sql.replace("?", "%s")
+
+
+class _PostgresCursor:
+    """Minimal sqlite cursor compatibility for the existing query layer."""
+
+    def __init__(self, cursor):
+        self._cursor = cursor
+        self.rowcount = cursor.rowcount
+        self.lastrowid = None
+
+    def fetchone(self):
+        row = self._cursor.fetchone()
+        return _row_compat(row)
+
+    def fetchall(self):
+        return [_row_compat(row) for row in self._cursor.fetchall()]
+
+
+def _row_compat(row):
+    """Give PostgreSQL dict rows SQLite's numeric-index access too."""
+    if row is None or not isinstance(row, dict):
+        return row
+
+    class Row(dict):
+        def __getitem__(self, key):
+            return list(self.values())[key] if isinstance(key, int) else super().__getitem__(key)
+
+    return Row(row)
+
+
+class _PostgresConnection:
+    """Adapter that keeps the current SQLite-shaped repository API stable."""
+
+    def __init__(self, connection):
+        self._connection = connection
+
+    def execute(self, sql: str, params: Sequence[Any] = ()):
+        cursor = self._connection.execute(_postgres_sql(sql), params)
+        wrapped = _PostgresCursor(cursor)
+        # psycopg does not provide sqlite's lastrowid.  Only identity-backed
+        # portal tables may call LASTVAL(). Calling it after inserts such as
+        # schema_migrations aborts the PostgreSQL transaction when no sequence
+        # was advanced, which would roll back a whole migration at commit.
+        insert = re.match(r"\s*INSERT(?:\s+OR\s+REPLACE)?\s+INTO\s+([A-Za-z_][A-Za-z0-9_]*)", sql, re.I)
+        if insert and insert.group(1) in set(ALL_TABLES) - {"portal_settings"}:
+            try:
+                identity = self._connection.execute("SELECT LASTVAL() AS id").fetchone()
+                wrapped.lastrowid = identity["id"] if isinstance(identity, dict) else identity[0]
+            except Exception:  # No sequence was advanced; callers do not need an id here.
+                pass
+        return wrapped
+
+    def executemany(self, sql: str, params_seq):
+        cursor = self._connection.cursor()
+        cursor.executemany(_postgres_sql(sql), params_seq)
+        return _PostgresCursor(cursor)
+
+    def commit(self):
+        self._connection.commit()
+
+    def rollback(self):
+        self._connection.rollback()
+
+    def close(self):
+        self._connection.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, _tb):
+        self.rollback() if exc_type else self.commit()
+        return False
 
 
 def set_audit_actor(actor: str | None) -> None:
@@ -516,10 +607,22 @@ def _migrate_connection_scoped_keys(conn: sqlite3.Connection) -> None:
             conn.execute(sql)
 
 
-def connect() -> sqlite3.Connection:
-    """One connection per thread — SQLite objects are not thread-safe."""
+def connect():
+    """One connection per thread for SQLite development or PostgreSQL production."""
     conn = getattr(_local, "conn", None)
     if conn is None:
+        if using_postgres():
+            try:
+                import psycopg
+                from psycopg.rows import dict_row
+            except ImportError as exc:
+                raise RuntimeError(
+                    "PostgreSQL is configured but the psycopg package is missing. "
+                    "Install the project's requirements before starting the portal."
+                ) from exc
+            conn = _PostgresConnection(psycopg.connect(APP.database_url, row_factory=dict_row))
+            _local.conn = conn
+            return conn
         conn = sqlite3.connect(APP.db_path, timeout=30)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
@@ -548,6 +651,10 @@ def init_db() -> None:
     try:
         with _write_lock:
             conn = connect()
+            if using_postgres():
+                apply_migrations(conn, "postgresql", SCHEMA)
+                conn.commit()
+                return
             conn.executescript(SCHEMA)
             _migrate(conn)
             conn.commit()
@@ -584,6 +691,10 @@ def execute(sql: str, params: Sequence[Any] = ()) -> int:
 
 def backup_database(destination: str) -> None:
     """Create and integrity-check a consistent SQLite backup while online."""
+    if using_postgres():
+        raise RuntimeError(
+            "SQLite file backups are unavailable for PostgreSQL. Use pg_dump or the managed database backup service."
+        )
     target = sqlite3.connect(destination)
     try:
         with _write_lock:

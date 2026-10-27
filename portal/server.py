@@ -40,7 +40,7 @@ WEB = Path(__file__).parent / "web"
 
 LOGIN_HTML = r"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Sign in · Vortex Veri</title><link rel="icon" type="image/png" href="/static/assets/vortex-veri-mark.png?v=2"><link rel="stylesheet" href="/static/login.css?v=2"><script src="/static/login.js?v=2" defer></script></head><body><main><div class="brand"><img class="mark" src="/static/assets/vortex-veri-mark.png" alt=""><strong>Vortex Veri</strong></div>
+<title>Sign in · Vortex Veri</title><link rel="icon" type="image/png" href="/static/assets/vortex-veri-mark.png?v=2"><link rel="stylesheet" href="/static/login.css?v=2"><script src="/static/login.js?v=4" defer></script></head><body><main><div class="brand"><img class="mark" src="/static/assets/vortex-veri-mark.png" alt=""><strong>Vortex Veri</strong></div>
 <p class="eyebrow" id="eyebrow">Private workspace</p><h1 id="title">Sign in</h1><p id="hint">Use your portal account to continue.</p>
 <form id="authForm" method="post" action="/api/auth/login" autocomplete="on"><div id="nameField" hidden><label for="displayName">Your name<input id="displayName" name="name" autocomplete="name" maxlength="100"></label></div>
 <label for="email">Work email<input id="email" name="email" type="email" autocomplete="username" required maxlength="254"></label>
@@ -207,6 +207,7 @@ GET_ROUTES = {
     "/api/crm": lambda p: api.crm(_p(p, "start"), _p(p, "end")),
     "/api/data-quality": lambda p: api.data_quality(_p(p, "start"), _p(p, "end")),
     "/api/marketing-analytics/workbooks": lambda p: {"workbooks": marketing_analytics.workbooks()},
+    "/api/marketing-analytics/mapping-status": lambda p: marketing_analytics.mapping_status(_p(p, "month")),
     "/api/marketing-analytics/tab": lambda p: marketing_analytics.read_tab(
         _int(p, "connection_id", 0), _p(p, "tab"), _p(p, "range", "A1:ZZ500"),
         _p(p, "spreadsheet_id")),
@@ -479,7 +480,7 @@ class Handler(BaseHTTPRequestHandler):
                 "/api/overview", "/api/timeseries", "/api/channels", "/api/campaigns",
                 "/api/search", "/api/ahrefs", "/api/web", "/api/crm",
                 "/api/data-quality", "/api/automation", "/api/planning",
-                "/api/marketing-analytics/workbooks", "/api/marketing-analytics/tab",
+                "/api/marketing-analytics/workbooks", "/api/marketing-analytics/tab", "/api/marketing-analytics/mapping-status",
             }
             analyst = {
                 "/api/workspace", "/api/mcp", "/api/syncs", "/api/source",

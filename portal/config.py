@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import sys
+import ipaddress
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -66,6 +67,18 @@ def _i(key: str, default: int) -> int:
         return default
 
 
+def effective_secure_cookie(host: str, configured: bool) -> bool:
+    """Return a cookie setting browsers can use for the configured host."""
+    candidate = str(host or "").strip().strip("[]")
+    try:
+        if ipaddress.ip_address(candidate).is_loopback:
+            return False
+    except ValueError:
+        if candidate.lower().rstrip(".") == "localhost":
+            return False
+    return configured
+
+
 @dataclass
 class AppCfg:
     host: str = os.getenv("PORTAL_HOST", "127.0.0.1").strip()
@@ -94,6 +107,10 @@ class AppCfg:
         if os.getenv("PORTAL_DB_PATH", "").strip()
         else default_db_path()
     )
+    # Production persistence. Accept DATABASE_URL too, because it is the
+    # conventional environment variable supplied by managed PostgreSQL hosts.
+    # Leaving this blank retains the local SQLite database for development.
+    database_url: str = os.getenv("PORTAL_DATABASE_URL", os.getenv("DATABASE_URL", "")).strip()
     timezone: str = os.getenv("PORTAL_TIMEZONE", "Asia/Kolkata").strip()
     currency: str = os.getenv("PORTAL_CURRENCY", "INR").strip()
     demo_mode: bool = _b("DEMO_MODE", True)
@@ -109,7 +126,14 @@ class AppCfg:
     funnel_labels: str = os.getenv(
         "FUNNEL_LABELS", "Leads,Contacted,Qualified,Booked,Completed,Won").strip()
 
+    def __post_init__(self) -> None:
+        # Browsers reject Secure cookies over loopback HTTP. The local portal
+        # never exposes a network listener, so session cookies must remain
+        # usable there even if an old .env still says true.
+        self.secure_cookie = effective_secure_cookie(self.host, self.secure_cookie)
+
 
 APP = AppCfg()
 
-Path(APP.db_path).parent.mkdir(parents=True, exist_ok=True)
+if not APP.database_url:
+    Path(APP.db_path).parent.mkdir(parents=True, exist_ok=True)

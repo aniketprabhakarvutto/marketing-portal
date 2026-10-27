@@ -9,12 +9,14 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import date
 from decimal import Decimal, InvalidOperation
+import json
+import math
 import re
 from urllib.parse import quote
 
 from . import connections as conns
 from .db import query
-from .httpclient import get, request
+from .httpclient import HttpError, get, request
 from .oauth import access_token
 from .providers import REGISTRY
 
@@ -25,6 +27,22 @@ _MONTHS = {
     )
 }
 _CELL_RANGE = re.compile(r"^[A-Z]{1,3}[1-9][0-9]*:[A-Z]{1,3}[1-9][0-9]*$")
+TEST_WORKBOOKS = {
+    "demand": "1ijVhe0wTsUIYKN6mmd-WISi7VVBZZrnARPXijhFiAz0",
+    "supply": "10IC3uyDYQvd0r1APYMeiNdWkHbw9GHyYNLgnaccfS-I",
+}
+MARKETING_ACCOUNT_IDS = {
+    "google_ads": {"7329923258"},
+    "meta_ads": {"1023092196493019"},
+}
+# Explicit business decision: these campaigns are excluded from Marketing
+# Analytics until a workbook mapping exists.  They are reported as ignored,
+# not silently reclassified.
+IGNORED_CAMPAIGNS = frozenset({
+    "Google_Hyyv_Search_Campaign_1",
+    "Google_Hyyv_Search_Campaign_2",
+    "Hyyv_demand_demandgen_",
+})
 
 
 def _sheet_provider():
@@ -58,6 +76,11 @@ def _viewable(conn) -> bool:
 def _month_key(title: str) -> str:
     text = title.casefold()
     year_match = re.search(r"\b(20\d{2})\b", text)
+    named = re.search(r"\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s*['’\- ]\s*(20\d{2}|\d{2})\b", text)
+    if named:
+        month = next(number for name, number in _MONTHS.items() if name.startswith(named.group(1)[:3]))
+        year = int(named.group(2))
+        return f"{year + 2000 if year < 100 else year:04d}-{month:02d}"
     if not year_match:
         return ""
     month = next((number for name, number in _MONTHS.items() if name in text), None)
@@ -81,22 +104,31 @@ def _metadata(conn, spreadsheet_id: str = "") -> dict:
 
 def _drive_files(conn) -> list[dict]:
     folder_id = str(conn.get("drive_folder_id") or "").strip()
-    if not folder_id:
-        return []
-    body = get(
-        "https://www.googleapis.com/drive/v3/files",
-        headers={"Authorization": f"Bearer {_token(conn)}"},
-        params={
-            "q": f"'{folder_id}' in parents and trashed=false and mimeType='application/vnd.google-apps.spreadsheet'",
-            "fields": "files(id,name,modifiedTime)", "pageSize": 1000,
-            "orderBy": "name desc",
-        },
-    )
-    return body.get("files") or []
+    if folder_id and not re.fullmatch(r"[A-Za-z0-9_-]+", folder_id):
+        raise ValueError("Invalid Drive folder ID")
+    query = "trashed=false and mimeType='application/vnd.google-apps.spreadsheet' and name contains 'Marketing Analytics'"
+    if folder_id:
+        query += f" and '{folder_id}' in parents"
+    files, page_token = [], ""
+    while True:
+        params = {"q": query, "fields": "nextPageToken,files(id,name,modifiedTime)", "pageSize": 1000}
+        if page_token:
+            params["pageToken"] = page_token
+        body = get("https://www.googleapis.com/drive/v3/files", headers={"Authorization": f"Bearer {_token(conn)}"}, params=params)
+        files.extend(body.get("files") or [])
+        page_token = body.get("nextPageToken") or ""
+        if not page_token:
+            break
+    return [item for item in files if _discovered_role(item.get("name") or "") == _role(conn)]
+
+
+def _discovered_role(title: str) -> str:
+    match = re.match(r"^\s*Marketing Analytics\s*\((Demand|Supply)\)", title, re.I)
+    return match.group(1).lower() if match else ""
 
 
 def workbooks() -> list[dict]:
-    """Return only explicitly saved Marketing Analytics workbooks."""
+    """Return saved and matching read-only Marketing Analytics workbooks."""
     out = []
     for conn in conns.all_connections(provider="google_sheets"):
         role = _role(conn)
@@ -175,8 +207,58 @@ def read_tab(connection_id: int, tab: str, cell_range: str = "A1:ZZ500",
         headers={"Authorization": f"Bearer {_token(conn)}"},
         params={"majorDimension": "ROWS", "valueRenderOption": "FORMATTED_VALUE"},
     )
-    return {"connection_id": conn.id, "role": _role(conn), "tab": tab,
-            "range": body.get("range") or cell_range, "rows": body.get("values") or []}
+    # Preserve the sheet author's visual hierarchy without inferring meaning
+    # from campaign names or values. Only return a bounded set of safe styles.
+    # Do not request formatting for the entire grid when the viewer asks for
+    # all rows. Sheets omits trailing empty rows from the values response.
+    start_match = re.match(r"([A-Z]+)([0-9]+):([A-Z]+)([0-9]+)", cell_range)
+    start_column, start_row, end_column, _ = start_match.groups()
+    last_value_row = int(start_row) + max(0, len(body.get("values") or []) - 1)
+    format_range = f"{start_column}{start_row}:{end_column}{last_value_row}"
+    formatting = get(
+        f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}",
+        headers={"Authorization": f"Bearer {_token(conn)}"},
+        params={"ranges": f"'{tab.replace(chr(39), chr(39) * 2)}'!{format_range}",
+                "fields": "sheets(properties(gridProperties(rowCount)),data(startRow,startColumn,rowData(values(effectiveFormat(backgroundColor,textFormat(bold,foregroundColor),horizontalAlignment)))))"},
+    )
+    styles = []
+    for sheet in formatting.get("sheets") or []:
+        for grid in sheet.get("data") or []:
+            for ri, row in enumerate(grid.get("rowData") or []):
+                for ci, cell in enumerate(row.get("values") or []):
+                    fmt = cell.get("effectiveFormat") or {}
+                    if fmt:
+                        styles.append([int(grid.get("startRow") or 0) + ri,
+                                       int(grid.get("startColumn") or 0) + ci, fmt])
+    # Drive's modifiedTime is the workbook modification time, not the time
+    # upstream advertising or CRM data was last synchronized.
+    try:
+        file_metadata = get(
+            f"https://www.googleapis.com/drive/v3/files/{quote(spreadsheet_id, safe='')}",
+            headers={"Authorization": f"Bearer {_token(conn)}"},
+            params={"fields": "modifiedTime"},
+        )
+        modified_time = file_metadata.get("modifiedTime")
+        modified_status = "available" if modified_time else "unavailable"
+    except HttpError as exc:
+        modified_time = None
+        modified_status = "unavailable"
+        try:
+            error = json.loads(exc.body).get("error", {})
+            reasons = {item.get("reason") for item in error.get("errors", []) if isinstance(item, dict)}
+            if exc.status == 403 and "insufficientPermissions" in reasons:
+                modified_status = "permission_required"
+            elif exc.status == 403 and "accessNotConfigured" in reasons:
+                modified_status = "api_not_enabled"
+        except (ValueError, AttributeError, TypeError):
+            pass
+    except Exception:
+        modified_time = None
+        modified_status = "unavailable"
+    sheet_row_count = next((s.get("properties", {}).get("gridProperties", {}).get("rowCount") for s in formatting.get("sheets") or [] if s.get("properties", {}).get("gridProperties", {}).get("rowCount")), None)
+    return {"connection_id": conn.id, "role": _role(conn), "tab": tab, "sheet_row_count": sheet_row_count,
+            "range": body.get("range") or cell_range, "rows": body.get("values") or [], "styles": styles,
+            "workbook_modified_time": modified_time, "workbook_modified_status": modified_status}
 
 
 def selection_stats(values) -> dict:
@@ -226,16 +308,24 @@ def mapping_pairs(values, source_column="A", target_column="B", side_column="C")
         }:
             continue
         explicit = str(row[side_index] if side_index is not None and side_index < len(row) else "").strip().lower()
-        if explicit in {"buy", "demand"}:
+        explicit_tokens = {role for role in ("demand", "supply")
+                           if re.search(rf"(?<![a-z0-9]){role}(?![a-z0-9])", explicit)}
+        if explicit in {"buy", "demand"} or explicit_tokens == {"demand"}:
             side = "demand"
-        elif explicit in {"sell", "supply"}:
+        elif explicit in {"sell", "supply"} or explicit_tokens == {"supply"}:
             side = "supply"
+        elif explicit:
+            side = ""
         else:
             target_text = target.casefold()
             source_text = source.casefold()
-            text = target_text if ("demand" in target_text or "supply" in target_text) else source_text
-            side = "demand" if "demand" in text and "supply" not in text else \
-                   "supply" if "supply" in text and "demand" not in text else ""
+            # DemandGen is an advertising format, not a funnel designation.
+            # Require separate tokens so a Supply_DemandGen campaign remains supply.
+            def funnel_tokens(text):
+                return {role for role in ("demand", "supply")
+                        if re.search(rf"(?<![a-z0-9]){role}(?![a-z0-9])", text)}
+            tokens = funnel_tokens(target_text) or funnel_tokens(source_text)
+            side = next(iter(tokens)) if len(tokens) == 1 else ""
         if side:
             result[side].append((source, target))
         else:
@@ -244,7 +334,7 @@ def mapping_pairs(values, source_column="A", target_column="B", side_column="C")
 
 
 def prepare_cost_rows(source_rows, mappings, day: str, allowed_accounts: dict[str, set[str]],
-                      other_side_campaigns=()) -> dict:
+                      other_side_campaigns=(), ignored_campaigns=()) -> dict:
     """Map exact campaign names and reject incomplete or ambiguous exports."""
     date.fromisoformat(day)
     lookup = {}
@@ -259,6 +349,7 @@ def prepare_cost_rows(source_rows, mappings, day: str, allowed_accounts: dict[st
     grouped = defaultdict(Decimal)
     unmapped, sources_seen = set(), set()
     other_side = {str(name).strip().casefold() for name in other_side_campaigns}
+    ignored = {str(name).strip().casefold() for name in ignored_campaigns}
     if set(lookup) & other_side:
         raise ValueError("Campaign mapping belongs to both demand and supply")
     for row in source_rows:
@@ -279,6 +370,8 @@ def prepare_cost_rows(source_rows, mappings, day: str, allowed_accounts: dict[st
         if not amount.is_finite():
             raise ValueError("Invalid spend amount")
         sources_seen.add(platform)
+        if campaign.casefold() in ignored:
+            continue
         mapped = lookup.get(campaign.casefold())
         if mapped is None:
             if campaign.casefold() in other_side:
@@ -306,21 +399,125 @@ def paid_rows(day: str) -> list[dict]:
     )]
 
 
+def mapping_status(month: str) -> dict:
+    """Compare saved paid campaign names with the configured mapping sheet.
+
+    This is a read-only snapshot of locally ingested data, not proof that the
+    advertising accounts have been fully synchronized.
+    """
+    if not re.fullmatch(r"20\d{2}-(0[1-9]|1[0-2])", month or ""):
+        raise ValueError("Choose a valid reporting month")
+    start = date.fromisoformat(month + "-01")
+    end = date(start.year + (start.month == 12), start.month % 12 + 1, 1)
+    rows = query("SELECT source,campaign_name FROM paid_metrics WHERE date>=? AND date<? "
+                 "AND ((source='google_ads' AND account_id=?) OR "
+                 "(source='meta_ads' AND account_id=?)) GROUP BY source,campaign_name "
+                 "ORDER BY source,campaign_name",
+                 (start.isoformat(), end.isoformat(),
+                  next(iter(MARKETING_ACCOUNT_IDS["google_ads"])),
+                  next(iter(MARKETING_ACCOUNT_IDS["meta_ads"]))))
+    campaigns = [(str(r["source"]), str(r["campaign_name"] or "").strip()) for r in rows]
+    connections = [c for c in conns.all_connections(provider="google_sheets") if _role(c) == "mapping" and _viewable(c)]
+    result = {"month": month, "status": "unavailable", "sources": sorted({source for source, _ in campaigns}),
+              "campaign_count": len(campaigns), "unmapped": [], "ambiguous": []}
+    if not campaigns:
+        result["message"] = "No saved advertising campaign data was found for this month, so mappings cannot be checked."
+        return result
+    if len(connections) != 1:
+        result["message"] = "Connect exactly one mapping workbook for read-only checks."
+        return result
+    conn = connections[0]
+    try:
+        tab = str(conn.get("sheet_name") or "").strip()
+        metadata = _metadata(conn)
+        titles = {str((s.get("properties") or {}).get("title") or "") for s in metadata.get("sheets") or []}
+        if not tab or tab not in titles:
+            raise ValueError("Configured mapping tab was not found")
+        escaped = quote(f"'{tab.replace(chr(39), chr(39) * 2)}'!A1:ZZ2000", safe="")
+        body = get(f"https://sheets.googleapis.com/v4/spreadsheets/{_spreadsheet_id(conn)}/values/{escaped}",
+                   headers={"Authorization": f"Bearer {_token(conn)}"},
+                   params={"majorDimension": "ROWS", "valueRenderOption": "FORMATTED_VALUE"})
+        values = body.get("values") or []
+        if len(values) >= 2000:
+            raise ValueError("Mapping sheet exceeds the supported range")
+        pairs = mapping_pairs(values, conn.get("mapping_source_column") or "A",
+                              conn.get("mapping_target_column") or "B", conn.get("mapping_side_column") or "")
+        lookup = defaultdict(set)
+        for role in ("demand", "supply"):
+            for source, target in pairs[role]:
+                lookup[source.casefold()].add((role, target))
+        unclassified = {name.casefold() for name in pairs["unclassified"]}
+        for source, name in campaigns:
+            entries = lookup.get(name.casefold(), set())
+            item = {"source": source, "campaign": name}
+            if not name or name.casefold() in unclassified or len(entries) > 1:
+                result["ambiguous"].append(item)
+            elif not entries:
+                result["unmapped"].append(item)
+        result["status"] = "checked"
+        result["message"] = "Compared saved campaign data with the mapping sheet; source completeness is not verified."
+    except Exception:
+        result["message"] = "Mapping workbook could not be read. Check its connection and access."
+    return result
+
+
 def write_cost_tab(connection_id: int, tab: str, rows: list[list], start_cell: str = "A1") -> dict:
-    """Write a rectangular cost export to one explicitly saved test/target tab."""
+    """Atomically replace values in the dedicated staging tab, including old rows."""
     conn = conns.get(connection_id)
     if not conn or conn.provider != "google_sheets" or not conn.enabled or _role(conn) not in {"demand", "supply"}:
         raise KeyError("Marketing Analytics workbook not found")
     if not tab or len(tab) > 100 or not re.fullmatch(r"[A-Z]{1,3}[1-9][0-9]*", start_cell.upper()):
         raise ValueError("Invalid sheet target")
+    if tab != "__vortex_cost_test" or start_cell.upper() != "A1":
+        raise ValueError("Only the dedicated staging tab can be replaced")
     spreadsheet_id = _spreadsheet_id(conn)
-    escaped = quote(f"'{tab.replace(chr(39), chr(39) * 2)}'!{start_cell.upper()}", safe="")
+    if spreadsheet_id != TEST_WORKBOOKS[_role(conn)]:
+        raise ValueError("Writes are limited to the approved private test workbook")
+    token = _token(conn)
+    metadata = get(f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}",
+                   headers={"Authorization": f"Bearer {token}"},
+                   params={"fields": "sheets.properties"})
+    matches = [s.get("properties", {}) for s in metadata.get("sheets", [])
+               if s.get("properties", {}).get("title") == tab]
+    if len(matches) != 1:
+        raise ValueError("Dedicated staging tab not found")
+    props = matches[0]
+    grid = props.get("gridProperties") or {}
+    row_count, col_count = int(grid.get("rowCount") or 0), int(grid.get("columnCount") or 0)
+    if len(rows) > row_count or any(len(row) > col_count for row in rows):
+        raise ValueError("Export exceeds staging tab dimensions")
+    if not row_count or not col_count or "sheetId" not in props:
+        raise ValueError("Staging tab dimensions unavailable")
+    def cell(value):
+        if isinstance(value, (int, float, Decimal)) and not isinstance(value, bool):
+            number = float(value)
+            if not math.isfinite(number):
+                raise ValueError("Invalid numeric value")
+            return {"userEnteredValue": {"numberValue": number}}
+        return {"userEnteredValue": {"stringValue": str(value)}}
+    row_data = [{"values": [cell(value) for value in row]} for row in rows]
+    used_columns = max(len(row) for row in rows) if rows else 0
+    requests = [{"updateCells": {
+        "range": {"sheetId": props["sheetId"], "startRowIndex": 0,
+                  "endRowIndex": len(rows), "startColumnIndex": 0,
+                  "endColumnIndex": used_columns},
+        "rows": row_data, "fields": "userEnteredValue"}}]
+    if used_columns < col_count:
+        requests.append({"repeatCell": {
+            "range": {"sheetId": props["sheetId"], "startRowIndex": 0,
+                      "endRowIndex": row_count, "startColumnIndex": used_columns,
+                      "endColumnIndex": col_count},
+            "cell": {}, "fields": "userEnteredValue"}})
+    if len(rows) < row_count:
+        requests.append({"repeatCell": {
+            "range": {"sheetId": props["sheetId"], "startRowIndex": len(rows),
+                      "endRowIndex": row_count, "startColumnIndex": 0,
+                      "endColumnIndex": used_columns},
+            "cell": {}, "fields": "userEnteredValue"}})
     body = request(
-        "PUT",
-        f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}/values/{escaped}",
-        headers={"Authorization": f"Bearer {_token(conn)}"},
-        params={"valueInputOption": "USER_ENTERED"},
-        json_body={"majorDimension": "ROWS", "values": rows},
+        "POST", f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}:batchUpdate",
+        headers={"Authorization": f"Bearer {token}"},
+        json_body={"requests": requests},
     )
     return {"connection_id": conn.id, "role": _role(conn), "tab": tab,
-            "updated_range": body.get("updatedRange") or "", "updated_rows": int(body.get("updatedRows") or 0)}
+            "updated_range": f"{tab}!A1", "updated_rows": len(rows)}

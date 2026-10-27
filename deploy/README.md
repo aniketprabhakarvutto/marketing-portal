@@ -135,16 +135,16 @@ before upgrades.
 
 ## Marketing Analytics automation
 
-The independent runner refreshes the saved Google Ads, Meta Ads, and Superleap
-connections, validates campaign mappings, and writes campaign costs only when
-both advertising platforms returned verified INR data. It stops on missing or
-ambiguous mappings instead of writing partial data.
+The runner refreshes saved Google Ads, Meta Ads, and Superleap connections and
+previews mapped campaign costs. It stops if a required source is missing or a
+refresh does not report success. It does not yet reproduce the Superleap
+Marketing DB reports, update the actual workbook data, or create monthly copies.
+Do not treat a successful preview as a completed daily workbook update.
 
-Before enabling writes, tag Google Sheets connections with the appropriate
-Marketing Analytics role: `demand`, `supply`, or `mapping`. Set the Demand and
-Supply campaign-cost tab names and set the mapping workbook's source, target,
-and funnel columns. Reconnect Google Sheets once so the updated Sheets and
-Drive scopes are granted.
+For testing, tag Google Sheets connections with the appropriate Marketing
+Analytics role: `demand`, `supply`, or `mapping`. Configure the mapping workbook's
+source, target, and funnel columns. Writes are restricted to the
+`__vortex_cost_test` staging tab and must only be used with private test copies.
 
 Run a non-writing preview first:
 
@@ -152,8 +152,10 @@ Run a non-writing preview first:
 docker compose -f docker-compose.production.yml --profile automation run --rm -e MARKETING_ANALYTICS_WRITE=0 marketing-analytics-runner
 ```
 
-After the preview reports both platforms, zero unmapped campaigns, and the
-expected row counts, install the provided systemd unit and timer under
+The unit and timer are provided as infrastructure for a future verified runner.
+Do not enable them as a production workbook update until the report matching,
+sheet writes, rollover, and an end-to-end test have been completed. To install
+the timer on a suitable host, put the unit and timer under
 `/etc/systemd/system/`. Change the service `WorkingDirectory` if the repository
 is not located at `/opt/vortex-veri`, then enable it:
 

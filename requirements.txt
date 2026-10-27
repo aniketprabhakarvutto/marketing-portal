@@ -1,0 +1,2 @@
+# PostgreSQL production persistence. SQLite remains available for local development.
+psycopg[binary]>=3.1,<4

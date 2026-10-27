@@ -27,7 +27,7 @@ const PAGE_INFO = {
 const state = {
   start: null, end: null, currency: "INR",
   dataTo: null,
-  campaignSrc: "", campaignFunnel: "", campaignGoogleAccount: "", campaignQuery: "", campaignRows: [],
+  campaignSrc: "", campaignFunnel: "", campaignStatus: "", campaignGoogleAccount: "", campaignQuery: "", campaignRows: [],
   campaignColumns: new Set(),
   campaignWidths: {}, campaignRowHeights: {}, campaignRowHeight: 38,
   tableViews: {},
@@ -358,13 +358,13 @@ async function api(path, opts = {}) {
 }
 
 const UI_PREFERENCE_KEYS = new Set([
-  "savedPortalViews", "customMetrics", "calendarDatePresets", "campaignColumns",
+  "savedPortalViews", "marketingDashboardViews", "customMetrics", "calendarDatePresets", "campaignColumns",
   "portalTableColumns", "portalTableWidths", "portalTableRowHeights",
   "campaignWidths", "campaignRowHeights", "campaignRowHeight",
   "portalTableDensity", "portalFreezeFirstColumn", "portalTableStripes",
 ]);
 const UI_PREFERENCE_JSON_KEYS = new Set([
-  "savedPortalViews", "customMetrics", "calendarDatePresets", "campaignColumns",
+  "savedPortalViews", "marketingDashboardViews", "customMetrics", "calendarDatePresets", "campaignColumns",
   "portalTableColumns", "portalTableWidths", "portalTableRowHeights",
   "campaignWidths", "campaignRowHeights",
 ]);
@@ -875,18 +875,32 @@ function lineChart(svg, days, series, fmt) {
     return;
   }
 
-  const max = niceMax(Math.max(...live.flatMap((s) => s.values.filter(Number.isFinite))) * 1.08);
+  const hasSecondaryAxis = live.some((s) => s.axis === "right");
+  const axisMax = (axis) => niceMax(Math.max(...live
+    .filter((s) => (s.axis || "left") === axis)
+    .flatMap((s) => s.values.filter(Number.isFinite))) * 1.08);
+  const leftMax = axisMax("left");
+  const rightMax = hasSecondaryAxis ? axisMax("right") : leftMax;
   const px = (i) => P.l + (days.length === 1 ? 0 : (i * (W - P.l - P.r)) / (days.length - 1));
-  const py = (v) => H - P.b - (v / max) * (H - P.t - P.b);
+  const py = (v, axis = "left") => H - P.b - (v / (axis === "right" ? rightMax : leftMax)) * (H - P.t - P.b);
 
   // gridlines + y ticks
   for (let i = 0; i <= 4; i++) {
-    const v = (max / 4) * i;
-    const y = py(v);
+    const v = (leftMax / 4) * i;
+    const y = py(v, "left");
     svg.appendChild(el("line", { class: "gridline", x1: P.l, x2: W - P.r, y1: y, y2: y }));
     const tx = el("text", { x: P.l - 8, y: y + 4, "text-anchor": "end" });
     tx.textContent = fmt(v, true);
     svg.appendChild(tx);
+  }
+  if (hasSecondaryAxis) {
+    for (let i = 0; i <= 4; i++) {
+      const v = (rightMax / 4) * i;
+      const y = py(v, "right");
+      const tx = el("text", { x: W - P.r + 8, y: y + 4, "text-anchor": "start", fill: live.find((s) => s.axis === "right")?.color || "" });
+      tx.textContent = fmt(v, true);
+      svg.appendChild(tx);
+    }
   }
   svg.appendChild(el("line", { class: "axis", x1: P.l, x2: W - P.r, y1: py(0), y2: py(0) }));
 
@@ -911,12 +925,12 @@ function lineChart(svg, days, series, fmt) {
         "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
       segment = [];
     };
-    s.values.forEach((v, i) => { if (Number.isFinite(v)) segment.push(`${px(i)},${py(v)}`); else flush(); });
+    s.values.forEach((v, i) => { if (Number.isFinite(v)) segment.push(`${px(i)},${py(v, s.axis)}`); else flush(); });
     flush();
     const lastIndex = s.values.findLastIndex(Number.isFinite);
     const last = s.values[lastIndex];
     const lbl = el("text", {
-      x: px(lastIndex) + 7, y: py(last) + 4, fill: s.color,
+      x: px(lastIndex) + 7, y: py(last, s.axis) + 4, fill: s.color,
       "font-size": 11, "font-weight": 600,
     });
     lbl.textContent = fmt(last, true);
@@ -947,7 +961,7 @@ function lineChart(svg, days, series, fmt) {
     live.forEach((s, k) => {
       dots[k].setAttribute("cx", px(i));
       const value = s.values[i];
-      dots[k].setAttribute("cy", Number.isFinite(value) ? py(value) : 0);
+      dots[k].setAttribute("cy", Number.isFinite(value) ? py(value, s.axis) : 0);
       dots[k].setAttribute("opacity", Number.isFinite(value) ? 1 : 0);
     });
     const d = new Date(days[i] + "T00:00:00");
@@ -1172,7 +1186,7 @@ function selectColumnDrawerTab(name) {
 }
 
 function openColumnDrawer({ type, node, columns, opener }) {
-  const selected = type === "paid" ? state.campaignColumns : state.tableViews[node.id].columns;
+  const selected = type === "paid" ? state.campaignColumns : type === "marketing" ? new Set($$("#marketingBuilderMetrics input:checked").map((input) => input.value)) : state.tableViews[node.id].columns;
   const preference = tableAppearancePreference();
   const essentials = type === "paid"
     ? PAID_ESSENTIAL_COLUMNS.filter((id) => columns.some((column) => column.id === id))
@@ -1185,6 +1199,8 @@ function openColumnDrawer({ type, node, columns, opener }) {
   };
   const heading = node.closest(".card")?.querySelector("h2")?.textContent?.trim();
   $("#columnDrawerTitle").textContent = heading ? `${heading} columns` : "Modify columns";
+  $("#columnTabAppearance").hidden = type === "marketing";
+  $("#columnTabAdvanced").hidden = type === "marketing";
   $("#columnDrawerSearch").value = "";
   $("#columnDrawerSearch").placeholder = `Search ${columns.length} columns…`;
   $("#columnFreezeFirst").checked = preference.freezeFirst;
@@ -1243,6 +1259,12 @@ function saveColumnDrawer() {
   if (!context.draft.size) {
     toast("Keep at least one column visible");
     selectColumnDrawerTab("columns");
+    return;
+  }
+  if (context.type === "marketing") {
+    $$("#marketingBuilderMetrics input").forEach((input) => { input.checked = context.draft.has(input.value); });
+    renderMarketingDashboard();
+    closeColumnDrawer();
     return;
   }
   const preference = {
@@ -1518,7 +1540,7 @@ async function loadOverview() {
 
   const leadSeries = [
     { key: "crm_leads", label: "Leads", color: cssVar("--series-1") },
-    { key: "crm_sales", label: "Sales", color: cssVar("--series-2") },
+    { key: "crm_sales", label: "Sales", color: cssVar("--series-2"), axis: "right" },
   ].map((s) => ({ ...s, values: S[s.key] || ts.days.map(() => null) }));
   legend($("#lgLeads"), leadSeries);
   lineChart($("#chLeads"), ts.days, leadSeries, (v) => num(v));
@@ -1880,14 +1902,18 @@ function renderPaid() {
     const matchesQuery = !query || (r.campaign || "").toLowerCase().includes(query);
     const matchesFunnel = !state.campaignFunnel
       || campaignFunnel(r.campaign) === state.campaignFunnel;
+    const status = String(r.campaign_status || "").trim().toLowerCase();
+    const matchesStatus = !state.campaignStatus
+      || (state.campaignStatus === "enabled" && ["enabled", "active"].includes(status))
+      || status === state.campaignStatus;
     const matchesGoogleAccount = !state.campaignGoogleAccount
       || (r.source === "google_ads" && googleAccountKey(r) === state.campaignGoogleAccount);
-    return matchesQuery && matchesFunnel && matchesGoogleAccount;
+    return matchesQuery && matchesFunnel && matchesStatus && matchesGoogleAccount;
   });
   renderGoogleAccountOptions();
   $("#campaignCount").textContent = `${nf.format(rows.length)} campaign${rows.length === 1 ? "" : "s"}`;
   const columns = PAID_COLUMNS.filter((column) => state.campaignColumns.has(column.id));
-  table($("#tblCampaigns"), columns, rows, query || state.campaignFunnel
+  table($("#tblCampaigns"), columns, rows, query || state.campaignFunnel || state.campaignStatus
     ? "No campaigns match these filters."
     : "No paid data yet — connect Google Ads or Meta Ads.");
   setupCampaignTableSizing(columns, rows);
@@ -2412,6 +2438,181 @@ function marketingStatValue(value) {
   return value == null || Number.isNaN(Number(value)) ? "Not available" : nf1.format(Number(value));
 }
 
+function marketingSavedViews() {
+  try { const views = JSON.parse(localStorage.getItem("marketingDashboardViews") || "[]"); return Array.isArray(views) ? views : []; }
+  catch (_) { return []; }
+}
+
+function marketingBuilderSavedOptions() {
+  const node = $("#marketingBuilderSaved");
+  node.innerHTML = '<option value="">Choose a saved view</option>' + marketingSavedViews().map((view, i) => `<option value="${i}">${esc(view.name)}</option>`).join("");
+}
+
+function marketingColumnLabel(section, col) {
+  const header = state.marketingRows[section.rowIndex] || [];
+  const sub = state.marketingRows[section.rowIndex + 1] || [];
+  const hasSubheaders = !String(sub[section.columnIndex] || "").trim() && sub.slice(section.columnIndex + 1, section.endColumn).some((v) => /^(target|last \d+ days|mtd)$/i.test(String(v || "").trim()));
+  if (!hasSubheaders) return String(header[col] || "").trim();
+  const child = String(sub[col] || "").trim();
+  if (!child) return String(header[col] || "").trim();
+  let parent = "";
+  for (let i = col; i > section.columnIndex; i--) if (String(header[i] || "").trim()) { parent = String(header[i]).trim(); break; }
+  return parent ? `${parent} · ${child}` : child;
+}
+
+function marketingBuilderMetrics(selected) {
+  const section = state.marketingSections?.[Number($("#marketingBuilderSection").value)];
+  const node = $("#marketingBuilderMetrics");
+  if (!section) { node.innerHTML = "No identifiable platform section in this sheet tab."; $("#marketingBuilderOutput").innerHTML = ""; return; }
+  const header = state.marketingRows[section.rowIndex] || [];
+  const rowChoice = $("#marketingRowChoice"), previousChoice = rowChoice.value;
+  const rowLabels = [...new Set(state.marketingRows.slice(section.rowIndex + 1, section.endRow).map((row) => String(row[section.columnIndex] ?? "").trim()).filter(Boolean))];
+  rowChoice.innerHTML = '<option value="">All rows</option>' + rowLabels.map((label) => `<option value="${esc(label)}">${esc(label)}</option>`).join("");
+  if (rowLabels.includes(previousChoice)) rowChoice.value = previousChoice;
+  const choices = [];
+  for (let col = section.columnIndex + 1; col < section.endColumn; col++) {
+    const label = marketingColumnLabel(section, col);
+    if (label) choices.push({ col, label });
+  }
+  node.innerHTML = choices.map(({col, label}, i) => `<label><input type="checkbox" value="${col}" ${(selected ? selected.includes(col) : i < 3) ? "checked" : ""}> ${esc(label)}</label>`).join("") || "No labelled metric columns found.";
+  renderMarketingDashboard();
+}
+
+function marketingReportRows(section) {
+  const query = $("#marketingRowFilter").value.trim().toLocaleLowerCase();
+  const choice = $("#marketingRowChoice").value;
+  return state.marketingRows.slice(section.rowIndex + 1, section.endRow).filter((row) => {
+    const label = String(row[section.columnIndex] ?? "").trim();
+    return label && (!choice || label === choice) && (!query || label.toLocaleLowerCase().includes(query));
+  });
+}
+
+function renderMarketingDashboard() {
+  const section = state.marketingSections?.[Number($("#marketingBuilderSection").value)];
+  const output = $("#marketingBuilderOutput");
+  if (!section) { output.innerHTML = ""; return; }
+  const cols = $$("#marketingBuilderMetrics input:checked").map((el) => Number(el.value));
+  $("#marketingColumnCount").textContent = `${cols.length} selected`;
+  if (!cols.length) { output.innerHTML = '<p class="sub">Choose at least one column to display.</p>'; return; }
+  const header = state.marketingRows[section.rowIndex] || [];
+  const rows = marketingReportRows(section);
+  const mode = $("#marketingBuilderDisplay").value;
+  const table = `<div class="marketing-platform-scroll"><table class="marketing-platform-table"><thead><tr><th scope="col">${esc(section.platform)}</th>${cols.map((col) => `<th scope="col">${esc(marketingColumnLabel(section, col))}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr><th scope="row">${esc(String(row[section.columnIndex] ?? ""))}</th>${cols.map((col) => `<td>${esc(String(row[col] ?? ""))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+  const col = cols[0], metric = marketingColumnLabel(section, col);
+  const numbers = rows.map((row) => ({label:String(row[section.columnIndex] ?? ""), raw:String(row[col] ?? "").trim()})).filter((item) => /^[-+]?₹?\s*[\d,]+(?:\.\d+)?%?$/.test(item.raw)).map((item) => ({...item, value:Number(item.raw.replace(/[₹,%\s]/g, ""))})).filter((item) => Number.isFinite(item.value) && item.value >= 0);
+  const max = Math.max(1, ...numbers.map((item) => item.value));
+  const chart = `<div class="marketing-chart"><h4>${esc(metric)} by ${esc(section.platform)}</h4><p>First selected column, using the values shown in the sheet. Negative and non-numeric values are omitted.</p>${numbers.length ? numbers.map((item) => `<div class="marketing-chart-row"><span>${esc(item.label)}</span><div class="marketing-chart-track"><div class="marketing-chart-bar" data-width="${Math.max(0, Math.min(100, item.value / max * 100))}"></div></div><b>${esc(item.raw)}</b></div>`).join("") : '<p>No non-negative numeric values available for this column.</p>'}</div>`;
+  output.innerHTML = `<p class="marketing-builder-context">${esc(section.platform)} · Sheet row ${section.rowIndex + 1} · ${rows.length} labelled rows</p>${mode !== "chart" ? table : ""}${mode !== "table" ? chart : ""}`;
+  $$(".marketing-chart-bar", output).forEach((bar) => { bar.style.width = `${Number(bar.dataset.width)}%`; });
+}
+
+function setupMarketingBuilder(sections) {
+  state.marketingSections = sections;
+  const select = $("#marketingBuilderSection");
+  select.innerHTML = sections.map((section, i) => `<option value="${i}">${esc(section.platform)} · row ${section.rowIndex + 1}</option>`).join("");
+  $("#marketingBuilderPresets").innerHTML = sections.map((section, i) => `<button type="button" data-preset="${i}">${esc(section.platform)} overview</button>`).join("");
+  $("#marketingBuilderPresets").onclick = (event) => { const button = event.target.closest("button[data-preset]"); if (!button) return; select.value = button.dataset.preset; $("#marketingRowChoice").value = ""; $("#marketingBuilderDisplay").value = "both"; marketingBuilderMetrics(); };
+  select.onchange = () => { $("#marketingRowChoice").value = ""; marketingBuilderMetrics(); };
+  $("#marketingBuilderMetrics").onchange = renderMarketingDashboard;
+  $("#marketingBuilderDisplay").onchange = renderMarketingDashboard;
+  $("#marketingRowFilter").oninput = renderMarketingDashboard;
+  $("#marketingRowChoice").onchange = renderMarketingDashboard;
+  $("#marketingExportReport").onclick = () => {
+    const section = state.marketingSections?.[Number(select.value)];
+    const columns = $$("#marketingBuilderMetrics input:checked").map((input) => Number(input.value));
+    if (!section || !columns.length) { toast("Choose a section and columns to export"); return; }
+    const rows = marketingReportRows(section);
+    const lines = [[section.platform, ...columns.map((col) => marketingColumnLabel(section, col))], ...rows.map((row) => [row[section.columnIndex], ...columns.map((col) => row[col] ?? "")])];
+    const url = URL.createObjectURL(csvBlob(lines.map((row) => row.map(csvCell).join(",")).join("\n")));
+    const link = document.createElement("a"); link.href = url; link.download = "marketing-report.csv"; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  marketingBuilderSavedOptions();
+  marketingBuilderMetrics();
+  $("#marketingModifyColumns").disabled = !sections.length;
+  $("#marketingModifyColumns").onclick = (event) => {
+    const section = state.marketingSections?.[Number(select.value)]; if (!section) return;
+    const columns = $$("#marketingBuilderMetrics input").map((input) => ({id:input.value, label:marketingColumnLabel(section, Number(input.value)), num:true}));
+    openColumnDrawer({type:"marketing", node:$("#marketingBuilderOutput"), columns, opener:event.currentTarget});
+  };
+  $("#marketingBuilderSave").onclick = async () => {
+    const name = $("#marketingBuilderName").value.trim(), section = sections[Number(select.value)];
+    const columns = $$("#marketingBuilderMetrics input:checked").map((el) => Number(el.value));
+    if (marketingRowOffset) { $("#marketingBuilderStatus").textContent = "Saved views can currently be created from the first 500 rows only."; return; }
+    if (!name || !section || !columns.length) { $("#marketingBuilderStatus").textContent = "Enter a name and choose a section and at least one column."; return; }
+    const views = marketingSavedViews().filter((v) => v.name.toLowerCase() !== name.toLowerCase());
+    views.unshift({name, workbook:$("#marketingWorkbook").value, tab:$("#marketingTab").value, row:section.rowIndex, column:section.columnIndex, platform:section.platform, columns, labels:columns.map((column) => marketingColumnLabel(section, column)), display:$("#marketingBuilderDisplay").value, rowFilter:$("#marketingRowFilter").value.trim(), rowChoice:$("#marketingRowChoice").value});
+    try { await api("/api/ui-preferences", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({key:"marketingDashboardViews", value:views.slice(0,30)})}); localStorage.setItem("marketingDashboardViews", JSON.stringify(views.slice(0,30))); marketingBuilderSavedOptions(); $("#marketingBuilderStatus").textContent = `Saved ${name}.`; }
+    catch (error) { $("#marketingBuilderStatus").textContent = `Could not save view: ${error.message}`; }
+  };
+  $("#marketingBuilderOpen").onclick = async () => {
+    const value = $("#marketingBuilderSaved").value; if (value === "") return;
+    const view = marketingSavedViews()[Number(value)]; if (!view) return;
+    const workbook = $("#marketingWorkbook");
+    if (![...workbook.options].some((item) => item.value === view.workbook)) { $("#marketingBuilderStatus").textContent = "The saved workbook is unavailable."; return; }
+    workbook.value = view.workbook; await workbook.onchange();
+    const tab = $("#marketingTab"); if (![...tab.options].some((item) => item.value === view.tab)) { $("#marketingBuilderStatus").textContent = "The saved sheet tab is unavailable."; return; }
+    tab.value = view.tab; renderMarketingTabs(); await loadMarketingTab();
+    const index = (state.marketingSections || []).findIndex((item) => item.rowIndex === view.row && item.columnIndex === view.column);
+    if (index < 0) { $("#marketingBuilderStatus").textContent = "The saved section moved or is unavailable. Select it again."; return; }
+    if (state.marketingSections[index].platform !== view.platform || !Array.isArray(view.labels) || view.columns.some((col, i) => marketingColumnLabel(state.marketingSections[index], col) !== view.labels[i])) { $("#marketingBuilderStatus").textContent = "The source headings changed. Choose the columns again before saving this view."; return; }
+    $("#marketingBuilderSection").value = String(index); $("#marketingBuilderDisplay").value = view.display; $("#marketingBuilderName").value = view.name; $("#marketingRowFilter").value = typeof view.rowFilter === "string" ? view.rowFilter : ""; marketingBuilderMetrics(view.columns);
+    const choice = typeof view.rowChoice === "string" ? view.rowChoice : "";
+    if (choice && ![...$("#marketingRowChoice").options].some((option) => option.value === choice)) { $("#marketingRowChoice").value = ""; renderMarketingDashboard(); $("#marketingBuilderStatus").textContent = "The saved row is unavailable. Select a row again."; return; }
+    $("#marketingRowChoice").value = choice; renderMarketingDashboard(); $("#marketingBuilderStatus").textContent = `Opened ${view.name}.`;
+  };
+  $("#marketingBuilderDelete").onclick = async () => {
+    const value = $("#marketingBuilderSaved").value; if (value === "") return;
+    const views = marketingSavedViews(); const removed = views.splice(Number(value), 1)[0]; if (!removed) return;
+    try { await api("/api/ui-preferences", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({key:"marketingDashboardViews", value:views})}); localStorage.setItem("marketingDashboardViews", JSON.stringify(views)); marketingBuilderSavedOptions(); $("#marketingBuilderStatus").textContent = `Deleted ${removed.name}.`; }
+    catch (error) { $("#marketingBuilderStatus").textContent = `Could not delete view: ${error.message}`; }
+  };
+}
+
+function renderMarketingPlatforms(rows) {
+  const container = $("#marketingPlatforms");
+  if (!container) return;
+  const sections = [], anchors = [];
+  rows.forEach((row, rowIndex) => row.forEach((value, columnIndex) => {
+    const label = String(value || "").trim().toLowerCase();
+    if (!label || !/^leads?$/i.test(String(row[columnIndex + 1] || "").trim())) return;
+    anchors.push({ rowIndex, columnIndex });
+    const platform = label === "google" || label === "google ads" ? "Google Ads"
+      : ["facebook", "facebook ads", "meta", "meta ads"].includes(label) ? "Facebook / Meta"
+        : ["other", "others", "other channels"].includes(label) ? "Other channels" : "";
+    if (!platform) return;
+    sections.push({ platform, rowIndex, columnIndex });
+  }));
+  if (!sections.length) {
+    setupMarketingBuilder([]);
+    container.innerHTML = '<div class="marketing-platform-empty">No clearly labelled Google or Facebook section was found in this tab. Use the complete sheet below to explore its data.</div>';
+    return;
+  }
+  container.innerHTML = sections.map((section) => {
+    const { platform, rowIndex, columnIndex } = section;
+    const next = anchors.find((other) => other.columnIndex === columnIndex && other.rowIndex > rowIndex);
+    const endRow = Math.min(rows.length, rowIndex + 40, next?.rowIndex ?? rows.length);
+    const nextColumn = anchors.find((other) => other.rowIndex === rowIndex && other.columnIndex > columnIndex);
+    let endColumn = Math.min(Math.max(0, ...rows.slice(rowIndex, endRow).map((row) => row.length)), nextColumn?.columnIndex ?? Infinity);
+    for (let col = columnIndex + 1; col < endColumn - 1; col++) {
+      const empty = (c) => rows.slice(rowIndex, Math.min(endRow, rowIndex + 8)).every((r) => !String(r[c] ?? "").trim());
+      if (empty(col) && empty(col + 1)) { endColumn = col; break; }
+    }
+    section.endRow = endRow; section.endColumn = endColumn;
+    const header = rows[rowIndex] || [];
+    const body = rows.slice(rowIndex + 1, endRow);
+    while (body.length && body[body.length - 1].slice(columnIndex, endColumn).every((v) => !String(v ?? "").trim())) body.pop();
+    const width = Math.max(1, endColumn - columnIndex);
+    return `<article class="marketing-platform-card"><div class="marketing-platform-title"><div><p class="eyebrow">PLATFORM</p><h4>${esc(platform)}</h4><p>Section from row ${rowIndex + 1 + marketingRowOffset} of the selected sheet</p></div><button type="button" class="marketing-source-link" data-marketing-jump="${rowIndex}" data-marketing-column="${columnIndex}">View in source</button></div><div class="marketing-platform-scroll"><table class="marketing-platform-table"><thead><tr>${Array.from({ length: width }, (_, i) => `<th scope="col">${esc(String(header[columnIndex + i] || (i === 0 ? platform : "")))}</th>`).join("")}</tr></thead><tbody>${body.map((row, i) => `<tr>${Array.from({ length: width }, (_, j) => `<td>${esc(String(row[columnIndex + j] ?? ""))}</td>`).join("")}</tr>`).join("")}</tbody></table></div></article>`;
+  }).join("");
+  setupMarketingBuilder(sections);
+  container.onclick = (event) => {
+    const button = event.target.closest("button[data-marketing-jump]");
+    if (!button) return;
+    const target = $(`#tblMarketingAnalytics td[data-row="${Number(button.dataset.marketingJump)}"][data-column="${Number(button.dataset.marketingColumn)}"]`);
+    if (target) { target.scrollIntoView({ block: "center", inline: "center" }); target.focus({ preventScroll: true }); }
+  };
+}
+
 async function updateMarketingSelection(rowIndex, columnIndex, extend = false) {
   const anchor = extend && state.marketingSelected ? state.marketingSelected : [rowIndex, columnIndex];
   const firstRow = Math.min(anchor[0], rowIndex), lastRow = Math.max(anchor[0], rowIndex);
@@ -2431,8 +2632,8 @@ async function updateMarketingSelection(rowIndex, columnIndex, extend = false) {
     cell.classList.toggle("is-selected", row >= firstRow && row <= lastRow && column >= firstColumn && column <= lastColumn);
   });
   $("#marketingSelectionLabel").textContent = firstRow === lastRow && firstColumn === lastColumn
-    ? `Row ${firstRow + 1}, column ${firstColumn + 1}`
-    : `Rows ${firstRow + 1} to ${lastRow + 1}, columns ${firstColumn + 1} to ${lastColumn + 1}`;
+    ? `Row ${firstRow + 1 + marketingRowOffset}, column ${firstColumn + 1}`
+    : `Rows ${firstRow + 1 + marketingRowOffset} to ${lastRow + 1 + marketingRowOffset}, columns ${firstColumn + 1} to ${lastColumn + 1}`;
   $("#marketingStatSum").textContent = marketingStatValue(stats.sum);
   $("#marketingStatAvg").textContent = marketingStatValue(stats.avg);
   $("#marketingStatMin").textContent = marketingStatValue(stats.min);
@@ -2441,39 +2642,174 @@ async function updateMarketingSelection(rowIndex, columnIndex, extend = false) {
   $("#marketingStatNumbers").textContent = nf.format(stats.count_numbers || 0);
 }
 
-function renderMarketingSheet(rows) {
+function renderMarketingSheet(rows, styles = []) {
   state.marketingRows = rows || [];
   state.marketingSelected = null;
+  renderMarketingPlatforms(state.marketingRows);
+  const formats = new Map(styles.map(([row, column, format]) => [`${row - marketingRowOffset}:${column}`, format]));
+  const color = (value) => {
+    if (!value || typeof value !== "object") return "";
+    const component = (part) => Math.round(Math.max(0, Math.min(1, Number(part) || 0)) * 255);
+    return `rgb(${component(value.red)}, ${component(value.green)}, ${component(value.blue)})`;
+  };
+  const cellStyle = (row, column) => {
+    const format = formats.get(`${row}:${column}`) || {};
+    const background = color(format.backgroundColor), foreground = color(format.textFormat?.foregroundColor);
+    const properties = [];
+    if (background && background !== "rgb(255, 255, 255)") properties.push(`background-color:${background}`);
+    if (foreground) properties.push(`color:${foreground}`);
+    if (format.textFormat?.bold) properties.push("font-weight:700");
+    if (["LEFT", "CENTER", "RIGHT"].includes(format.horizontalAlignment)) properties.push(`text-align:${format.horizontalAlignment.toLowerCase()}`);
+    return properties.join(";");
+  };
   const width = Math.max(1, ...state.marketingRows.map((row) => row.length));
   const letters = Array.from({ length: width }, (_, index) => {
     let value = "", number = index + 1;
     while (number) { number--; value = String.fromCharCode(65 + number % 26) + value; number = Math.floor(number / 26); }
     return value;
   });
-  $("#tblMarketingAnalytics").innerHTML = `<thead><tr><th aria-hidden="true"></th>${letters.map((letter) => `<th scope="col">${letter}</th>`).join("")}</tr></thead><tbody>${state.marketingRows.map((row, rowIndex) => `<tr><th scope="row">${rowIndex + 1}</th>${letters.map((_, columnIndex) => `<td tabindex="0" data-row="${rowIndex}" data-column="${columnIndex}">${esc(row[columnIndex] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody>`;
+  $("#tblMarketingAnalytics").innerHTML = `<thead><tr><th aria-hidden="true"></th>${letters.map((letter) => `<th scope="col">${letter}</th>`).join("")}</tr></thead><tbody>${state.marketingRows.map((row, rowIndex) => `<tr><th scope="row">${rowIndex + 1 + marketingRowOffset}</th>${letters.map((_, columnIndex) => `<td tabindex="0" data-row="${rowIndex}" data-column="${columnIndex}" title="${esc(String(row[columnIndex] ?? ""))}">${esc(row[columnIndex] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody>`;
+  const errors = [];
+  state.marketingRows.forEach((row, ri) => row.forEach((value, ci) => { if (/^#(?:REF!|DIV\/0!|VALUE!|N\/A|NAME\?|NUM!|ERROR!|NULL!)$/.test(String(value).trim())) errors.push({ri, ci, value}); }));
+  const errorBox = $("#marketingSheetErrors"); errorBox.hidden = !state.marketingRows.length;
+  errorBox.innerHTML = `<summary><span class="marketing-error-label"><span class="marketing-error-dot ${errors.length ? "has-errors" : ""}" aria-hidden="true"></span>${errors.length ? `${errors.length} sheet error${errors.length === 1 ? "" : "s"} in loaded range` : "No sheet errors in loaded range"}</span><span class="source-status-action">${errors.length ? "View details" : "Checked"}<span>${errors.length}</span><svg class="source-status-chevron" aria-hidden="true" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></svg></span></summary><div class="marketing-error-details"><p>${errors.length ? "These values come from the source sheet. Select an error to view its cell." : "No errors were found in the loaded cells."}</p><div class="marketing-error-list">${errors.slice(0, 20).map(({ri, ci, value}) => `<button type="button" data-error-row="${ri}" data-error-column="${ci}">${esc(letters[ci])}${ri + 1}: ${esc(value)}</button>`).join("")}${errors.length > 20 ? `<span>Showing first 20.</span>` : ""}</div></div>`;
+  errorBox.onclick = (event) => { const button = event.target.closest("button[data-error-row]"); if (!button) return; const cell = $(`#tblMarketingAnalytics td[data-row="${button.dataset.errorRow}"][data-column="${button.dataset.errorColumn}"]`); cell?.scrollIntoView({block:"center", inline:"center"}); cell?.focus(); };
+  errorBox.querySelectorAll("button[data-error-row]").forEach((button) => { const ri = Number(button.dataset.errorRow), ci = Number(button.dataset.errorColumn); button.textContent = `${letters[ci]}${ri + 1 + marketingRowOffset}: ${state.marketingRows[ri]?.[ci] ?? ""}`; });
+  $$("#tblMarketingAnalytics td[data-row]").forEach((cell) => {
+    for (const rule of cellStyle(Number(cell.dataset.row), Number(cell.dataset.column)).split(";")) {
+      const separator = rule.indexOf(":");
+      if (separator > 0) cell.style.setProperty(rule.slice(0, separator), rule.slice(separator + 1));
+    }
+  });
   $("#marketingSelectionLabel").textContent = "Select a cell to calculate.";
   ["Sum", "Avg", "Min", "Max"].forEach((key) => $(`#marketingStat${key}`).textContent = "Not available");
   $("#marketingStatCount").textContent = "0"; $("#marketingStatNumbers").textContent = "0";
 }
 
+let marketingTabRequest = 0;
+let marketingRowOffset = 0;
+let marketingPageKey = "";
+let marketingPageSize = 500;
 async function loadMarketingTab() {
+  const request = ++marketingTabRequest;
   const [connectionValue, spreadsheetId] = String($("#marketingWorkbook").value || "").split("|");
   const workbookId = Number(connectionValue || 0);
   const tab = $("#marketingTab").value;
-  if (!workbookId || !tab) { renderMarketingSheet([]); return; }
-  const data = await api(`/api/marketing-analytics/tab?connection_id=${workbookId}&spreadsheet_id=${encodeURIComponent(spreadsheetId || "")}&tab=${encodeURIComponent(tab)}&range=A1:ZZ500`);
-  renderMarketingSheet(data.rows || []);
+  const pageKey = `${workbookId}|${spreadsheetId}|${tab}`;
+  if (pageKey !== marketingPageKey) { marketingPageKey = pageKey; marketingRowOffset = 0; }
+  if (!workbookId || !tab) { renderMarketingSheet([]); $("#marketingReadStatus").textContent = "No sheet selected."; return; }
+  $("#marketingReadStatus").textContent = `Loading ${tab}…`;
+  try {
+    const range = `A${marketingRowOffset + 1}:ZZ${marketingPageSize === "all" ? 1000000 : marketingRowOffset + marketingPageSize}`;
+    const data = await api(`/api/marketing-analytics/tab?connection_id=${workbookId}&spreadsheet_id=${encodeURIComponent(spreadsheetId || "")}&tab=${encodeURIComponent(tab)}&range=${range}`);
+    if (request !== marketingTabRequest) return;
+    renderMarketingSheet(data.rows || [], data.styles || []);
+    $("#marketingPageStatus").textContent = data.rows?.length ? `${marketingRowOffset + 1}–${marketingRowOffset + data.rows.length}${marketingPageSize === "all" ? " (all populated rows)" : ""}` : "No populated rows";
+    $("#marketingPageFirst").disabled = marketingRowOffset === 0;
+    $("#marketingPagePrevious").disabled = marketingRowOffset === 0;
+    $("#marketingPageNext").disabled = marketingPageSize === "all" || (data.sheet_row_count ? marketingRowOffset + marketingPageSize >= data.sheet_row_count : (data.rows || []).length < marketingPageSize);
+    const modified = data.workbook_modified_time ? new Date(data.workbook_modified_time) : null;
+    const freshness = modified && !Number.isNaN(modified.getTime()) ? `Workbook modified ${modified.toLocaleString()}` : data.workbook_modified_status === "permission_required" ? "Workbook modification time unavailable. Reconnect this Google Sheets source and allow Drive metadata access." : data.workbook_modified_status === "api_not_enabled" ? "Workbook modification time unavailable. Enable the Google Drive API in this connection's Google Cloud project." : "Workbook modification time unavailable";
+    $("#marketingReadStatus").textContent = `${data.role === "supply" ? "Supply" : "Demand"} · ${tab} · Read ${new Date().toLocaleString()} · ${freshness} · Source sync time unavailable`;
+  } catch (error) { if (request === marketingTabRequest) { renderMarketingSheet([]); $("#marketingReadStatus").textContent = `Could not load ${tab}. Check the Google Sheets connection.`; } throw error; }
+}
+
+function renderMarketingTabs() {
+  const select = $("#marketingTab"), nav = $("#marketingTabs");
+  nav.innerHTML = [...select.options].map((option, i) => `<button type="button" data-tab-index="${i}" aria-pressed="${option.selected}">${esc(option.textContent)}</button>`).join("");
+  nav.onclick = async (event) => {
+    const button = event.target.closest("button[data-tab-index]"); if (!button) return;
+    select.selectedIndex = Number(button.dataset.tabIndex);
+    renderMarketingTabs();
+    try { await loadMarketingTab(); } catch (error) { toast(error.message, "error"); }
+  };
+}
+
+function syncMarketingFilters(workbook) {
+  const [year, month] = String(workbook?.month || "").split("-");
+  $("#marketingYear").value = year || "";
+  $("#marketingMonth").value = month || "";
+  $("#marketingFunnel").value = workbook?.role || "";
+  $("#marketingWorkbookLabel").hidden = !(state.marketingWorkbooks || []).length;
+  updateMarketingFunnelButtons();
+  updateMarketingMenus();
+}
+
+function updateMarketingMenus() {
+  $$(".marketing-menu").forEach((menu) => {
+    const select = $("#" + menu.dataset.marketingSelect), trigger = $(".marketing-menu-trigger", menu), list = $(".marketing-menu-options", menu);
+    const current = select.selectedOptions[0];
+    $("span", trigger).textContent = current?.textContent || "Select";
+    list.innerHTML = [...select.options].filter((option) => !option.hidden && (option.value || option.selected)).map((option) => `<button type="button" data-value="${esc(option.value)}" class="${option.selected ? "selected" : ""}" aria-pressed="${option.selected}">${esc(option.textContent)}${option.dataset.detail ? `<span class="marketing-workbook-detail">${esc(option.dataset.detail)}</span>` : ""}</button>`).join("");
+    trigger.onclick = () => {
+      const opening = list.hidden;
+      $$(".marketing-menu-options").forEach((other) => { other.hidden = true; other.previousElementSibling.setAttribute("aria-expanded", "false"); });
+      list.hidden = !opening; trigger.setAttribute("aria-expanded", String(opening));
+    };
+    list.onclick = (event) => {
+      const button = event.target.closest("button[data-value]"); if (!button) return;
+      select.value = button.dataset.value; list.hidden = true; trigger.setAttribute("aria-expanded", "false");
+      select.dispatchEvent(new Event("change", {bubbles:true})); trigger.focus();
+    };
+    menu.onkeydown = (event) => { if (event.key === "Escape" && !list.hidden) { list.hidden = true; trigger.setAttribute("aria-expanded", "false"); trigger.focus(); } };
+    menu.onfocusout = (event) => { if (!menu.contains(event.relatedTarget)) { list.hidden = true; trigger.setAttribute("aria-expanded", "false"); } };
+  });
+}
+
+function updateMarketingFunnelButtons() {
+  $$("[data-marketing-funnel]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.marketingFunnel === $("#marketingFunnel").value));
+  });
+}
+
+let marketingMappingRequest = 0;
+async function loadMarketingMapping(month) {
+  const request = ++marketingMappingRequest, summary = $("#marketingMappingSummary"), details = $("#marketingMappingDetails");
+  summary.textContent = "Checking"; details.textContent = "";
+  if (!/^\d{4}-\d{2}$/.test(month || "")) { summary.textContent = "Month unavailable"; return; }
+  try {
+    const result = await api(`/api/marketing-analytics/mapping-status?month=${encodeURIComponent(month)}`);
+    if (request !== marketingMappingRequest) return;
+    if (result.status !== "checked") { summary.textContent = "Unavailable"; details.textContent = result.message; return; }
+    const issues = [...result.unmapped.map((item) => ({...item, reason:"Unmapped"})), ...result.ambiguous.map((item) => ({...item, reason:"Needs review"}))];
+    summary.textContent = issues.length ? `${issues.length} need review` : "No issues in saved data";
+    details.innerHTML = `<p>${esc(result.message)} ${result.campaign_count} campaign records compared. Sources present: ${esc(result.sources.join(", ") || "none")}.</p>` + (issues.length ? `<ul class="marketing-status-list">${issues.map((item) => `<li class="marketing-status-row"><span class="marketing-status-main"><strong>${esc(item.campaign || "Campaign name missing")}</strong><span>${esc(item.source === "google_ads" ? "Google Ads" : item.source === "meta_ads" ? "Meta Ads" : item.source)}</span></span><span class="marketing-status-badge marketing-status-warning">${esc(item.reason)}</span></li>`).join("")}</ul>` : "");
+  } catch (_) { if (request === marketingMappingRequest) { summary.textContent = "Unavailable"; details.textContent = "The mapping check could not be loaded."; } }
 }
 
 async function loadMarketingAnalytics() {
+  $("#marketingPageSize").onchange = async (event) => { marketingPageSize = event.target.value === "all" ? "all" : Number(event.target.value); marketingRowOffset = 0; try { await loadMarketingTab(); } catch (error) { toast(error.message, "error"); } };
+  $("#marketingPageFirst").onclick = async () => { marketingRowOffset = 0; try { await loadMarketingTab(); } catch (error) { toast(error.message, "error"); } };
+  $("#marketingPagePrevious").onclick = async () => { marketingRowOffset = Math.max(0, marketingRowOffset - marketingPageSize); try { await loadMarketingTab(); } catch (error) { toast(error.message, "error"); } };
+  $("#marketingPageNext").onclick = async () => { marketingRowOffset += marketingPageSize; try { await loadMarketingTab(); } catch (error) { toast(error.message, "error"); } };
+  const sourceConnections = state.connections.filter((c) => c.enabled && ["google_ads", "meta_ads", "superleap_crm"].includes(c.provider));
+  $("#marketingSourceFreshness").innerHTML = `<p>These are portal syncs, not proof that this workbook was updated.</p>` + (sourceConnections.length ? `<ul class="marketing-status-list">${sourceConnections.map((c) => {
+    // SQLite stores sync timestamps in UTC without a timezone suffix.
+    const stamp = String(c.last_success_at || "");
+    const last = stamp ? new Date(/[zZ]$|[+-]\d\d:\d\d$/.test(stamp) ? stamp : `${stamp.replace(" ", "T")}Z`) : null;
+    const success = last && !Number.isNaN(last.getTime()) ? last.toLocaleString() : "No successful sync recorded";
+    return `<li class="marketing-status-row"><span class="marketing-status-main"><strong>${esc(c.name)}</strong><span>Last successful sync: ${esc(success)}</span></span><span class="marketing-status-badge">Latest status: ${esc(c.last_status || "unknown")}</span></li>`;
+  }).join("")}</ul>` : "<p>No enabled advertising or CRM sources found.</p>");
   const response = await api("/api/marketing-analytics/workbooks");
   state.marketingWorkbooks = response.workbooks || [];
   const workbookSelect = $("#marketingWorkbook"), tabSelect = $("#marketingTab");
   const previous = workbookSelect.value;
-  workbookSelect.innerHTML = state.marketingWorkbooks.map((workbook) => `<option value="${workbook.connection_id}|${esc(workbook.spreadsheet_id)}">${esc(workbook.month || "Month unavailable")} · ${esc(workbook.role)} · ${esc(workbook.name)}</option>`).join("");
+  workbookSelect.innerHTML = state.marketingWorkbooks.map((workbook) => {
+    const period = /^\d{4}-\d{2}$/.test(workbook.month || "") ? new Date(Number(workbook.month.slice(0, 4)), Number(workbook.month.slice(5)) - 1, 1).toLocaleString("en", {month:"long", year:"numeric"}) : "Month not identified";
+    const role = workbook.role === "demand" ? "Demand" : "Supply";
+    const detail = `${period} · ${role}${/test only/i.test(workbook.name) ? " · Test copy" : ""}`;
+    return `<option value="${workbook.connection_id}|${esc(workbook.spreadsheet_id)}" data-detail="${esc(detail)}">${esc(workbook.name)}</option>`;
+  }).join("");
   if ([...workbookSelect.options].some((option) => option.value === previous)) workbookSelect.value = previous;
   const workbook = state.marketingWorkbooks.find((item) => `${item.connection_id}|${item.spreadsheet_id}` === workbookSelect.value);
+  $("#marketingWorkbookLabel").hidden = !state.marketingWorkbooks.length;
   tabSelect.innerHTML = (workbook?.tabs || []).map((tab) => `<option value="${esc(tab.title)}">${esc(tab.title)}</option>`).join("");
+  const years = [...new Set(state.marketingWorkbooks.map((item) => /^\d{4}-\d{2}$/.test(item.month || "") ? item.month.slice(0, 4) : ""))].filter(Boolean).sort();
+  $("#marketingYear").innerHTML = '<option value="">Unknown year</option>' + years.map((year) => `<option value="${esc(year)}">${esc(year)}</option>`).join("");
+  $("#marketingMonth").innerHTML = '<option value="">Unknown month</option>' + Array.from({length:12}, (_, i) => `<option value="${String(i + 1).padStart(2,"0")}">${new Date(2020, i, 1).toLocaleString("en", {month:"long"})}</option>`).join("");
+  $("#marketingFunnel").innerHTML = '<option value="demand">Demand</option><option value="supply">Supply</option>';
+  syncMarketingFilters(workbook); renderMarketingTabs();
+  loadMarketingMapping(workbook?.month);
   const errors = state.marketingWorkbooks.filter((item) => item.status === "error");
   const alert = $("#marketingAnalyticsAlert");
   alert.hidden = !errors.length && Boolean(workbook);
@@ -2483,9 +2819,29 @@ async function loadMarketingAnalytics() {
   workbookSelect.onchange = async () => {
     const selected = state.marketingWorkbooks.find((item) => `${item.connection_id}|${item.spreadsheet_id}` === workbookSelect.value);
     tabSelect.innerHTML = (selected?.tabs || []).map((tab) => `<option value="${esc(tab.title)}">${esc(tab.title)}</option>`).join("");
+    syncMarketingFilters(selected); renderMarketingTabs();
+    loadMarketingMapping(selected?.month);
     await loadMarketingTab();
   };
-  tabSelect.onchange = loadMarketingTab;
+  tabSelect.onchange = async () => { renderMarketingTabs(); await loadMarketingTab(); };
+  const filterWorkbooks = async () => {
+    const year = $("#marketingYear").value, month = $("#marketingMonth").value, role = $("#marketingFunnel").value;
+    const matches = state.marketingWorkbooks.filter((item) => item.role === role && (year && month ? item.month === `${year}-${month}` : !item.month));
+    $("#marketingWorkbookLabel").hidden = !state.marketingWorkbooks.length;
+    if (!matches.length) { updateMarketingMenus(); loadMarketingMapping(year && month ? `${year}-${month}` : ""); ++marketingTabRequest; workbookSelect.selectedIndex = -1; tabSelect.innerHTML = ""; renderMarketingTabs(); renderMarketingSheet([]); $("#marketingReadStatus").textContent = "No sheet selected."; alert.hidden = false; alert.textContent = "No workbook is connected for this month, year and funnel."; return; }
+    alert.hidden = true; workbookSelect.value = `${matches[0].connection_id}|${matches[0].spreadsheet_id}`; await workbookSelect.onchange();
+  };
+  ["#marketingMonth", "#marketingYear", "#marketingFunnel"].forEach((id) => { $(id).onchange = () => { updateMarketingFunnelButtons(); updateMarketingMenus(); filterWorkbooks().catch((error) => toast(error.message, "error")); }; });
+  $$("[data-marketing-funnel]").forEach((button) => { button.onclick = () => { const select = $("#marketingFunnel"); if (select.value !== button.dataset.marketingFunnel) { select.value = button.dataset.marketingFunnel; select.dispatchEvent(new Event("change", {bubbles:true})); } }; });
+  $("#marketingTabsPrevious").onclick = () => $("#marketingTabs").scrollBy({left:-300,behavior:"smooth"});
+  $("#marketingTabsNext").onclick = () => $("#marketingTabs").scrollBy({left:300,behavior:"smooth"});
+  $("#tblMarketingAnalytics").onmousedown = (event) => {
+    if (!event.shiftKey || !event.target.closest("td[data-row]")) return;
+    event.preventDefault();
+    const selection = window.getSelection();
+    const table = $("#tblMarketingAnalytics");
+    if (selection && (table.contains(selection.anchorNode) || table.contains(selection.focusNode))) selection.removeAllRanges();
+  };
   $("#tblMarketingAnalytics").onclick = (event) => {
     const cell = event.target.closest("td[data-row]");
     if (cell) updateMarketingSelection(Number(cell.dataset.row), Number(cell.dataset.column), event.shiftKey).catch((error) => toast(error.message, "error"));
@@ -2495,7 +2851,7 @@ async function loadMarketingAnalytics() {
     const cell = event.target.closest("td[data-row]");
     if (!cell) return;
     event.preventDefault();
-    updateMarketingSelection(Number(cell.dataset.row), Number(cell.dataset.column)).catch((error) => toast(error.message, "error"));
+    updateMarketingSelection(Number(cell.dataset.row), Number(cell.dataset.column), event.shiftKey).catch((error) => toast(error.message, "error"));
   };
 }
 
@@ -2596,7 +2952,7 @@ async function loadConnections() {
         <div>${nf.format(c.rows_held)} rows stored</div>${err}
       </div>
       <div class="row">
-        ${needsAuth ? `<button class="primary" data-auth="${c.id}">Connect</button>` : ""}
+        ${needsAuth ? `<button class="primary" data-auth="${c.id}">Connect</button>` : c.needs_oauth ? `<button data-auth="${c.id}">Reconnect</button>` : ""}
         ${c.syncable === false ? "" : `<button data-sync="${c.id}" ${c.ready && c.enabled ? "" : "disabled"}>Sync now</button>`}
         <button data-edit="${c.id}" data-provider="${c.provider}">Edit</button>
         <button data-toggle="${c.id}" data-on="${c.enabled ? 1 : 0}">${c.enabled ? "Turn off" : "Turn on"}</button>
@@ -2693,7 +3049,7 @@ function saveCurrentView() {
   const views = getSavedViews().filter((view) => view.name.toLocaleLowerCase() !== name.trim().toLocaleLowerCase());
   views.unshift({
     id: String(Date.now()), name: name.trim(), tab: activeTab, start: state.start, end: state.end,
-    campaignSrc: state.campaignSrc, campaignFunnel: state.campaignFunnel,
+    campaignSrc: state.campaignSrc, campaignFunnel: state.campaignFunnel, campaignStatus: state.campaignStatus,
     campaignQuery: state.campaignQuery, campaignColumns: [...state.campaignColumns],
     webDim: state.webDim, searchDim: state.searchDim,
   });
@@ -2709,12 +3065,18 @@ function applySavedView(view) {
     ? view.start : shiftIso(state.end, -29);
   state.campaignSrc = view.campaignSrc || "";
   state.campaignFunnel = view.campaignFunnel || "";
+  state.campaignStatus = view.campaignStatus || "";
   state.campaignQuery = view.campaignQuery || "";
   state.webDim = view.webDim || "channel";
   state.searchDim = view.searchDim || "query";
   if (view.campaignColumns?.length) state.campaignColumns = new Set(view.campaignColumns);
   $("#start").value = state.start; $("#end").value = state.end;
   $("#campaignSearch").value = state.campaignQuery;
+  $$("[data-status]").forEach((button) => {
+    const on = button.dataset.status === state.campaignStatus;
+    button.classList.toggle("on", on);
+    button.setAttribute("aria-pressed", String(on));
+  });
   updateDateRangeLabel(); renderColumnMenu();
   switchTab(view.tab || "overview");
   toast(`Loaded ${view.name}`);
@@ -3966,6 +4328,13 @@ async function boot() {
     b.classList.add("on");
     b.setAttribute("aria-pressed", "true");
     state.campaignFunnel = b.dataset.funnel;
+    renderPaid();
+  }));
+  $$("[data-status]").forEach((b) => b.addEventListener("click", () => {
+    $$("[data-status]").forEach((x) => { x.classList.remove("on"); x.setAttribute("aria-pressed", "false"); });
+    b.classList.add("on");
+    b.setAttribute("aria-pressed", "true");
+    state.campaignStatus = b.dataset.status;
     renderPaid();
   }));
   $("#campaignSearch").addEventListener("input", (ev) => {

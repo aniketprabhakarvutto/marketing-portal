@@ -64,8 +64,8 @@ form.addEventListener("submit", async (event) => {
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Sign-in failed.");
-    navigating = true;
     button.textContent = "Opening portal...";
+    navigating = true;
     location.replace(`/${location.hash}`);
   } catch (error) {
     message.textContent = error.message || "Sign-in failed.";

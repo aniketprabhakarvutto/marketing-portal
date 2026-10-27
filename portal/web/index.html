@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Vortex Veri</title>
-  <link rel="stylesheet" href="/static/styles.css?v=61">
+  <link rel="stylesheet" href="/static/styles.css?v=68">
   <link rel="icon" type="image/png" href="/static/assets/vortex-veri-mark.png?v=2">
 </head>
 <body>
@@ -180,7 +180,7 @@
       </div>
       <div class="card">
         <h2>CRM leads and sales per day</h2>
-        <p class="sub">Real outcomes from your CRM, not platform-reported conversions.</p>
+        <p class="sub">Real outcomes from your CRM. Leads use the left scale; sales use the green scale on the right.</p>
         <div class="legend" id="lgLeads"></div>
         <svg class="chart" id="chLeads" height="240" role="img" aria-label="Daily CRM leads and completed sales"></svg>
       </div>
@@ -237,6 +237,12 @@
           <button data-funnel="" class="on" aria-pressed="true">All</button>
           <button data-funnel="demand" aria-pressed="false">Demand</button>
           <button data-funnel="supply" aria-pressed="false">Supply</button>
+        </div>
+        <div class="filter-group" role="group" aria-label="Campaign status filter">
+          <span>Status</span>
+          <button data-status="" class="on" aria-pressed="true">All</button>
+          <button data-status="enabled" aria-pressed="false">Enabled</button>
+          <button data-status="paused" aria-pressed="false">Paused</button>
         </div>
         <span id="campaignCount" class="result-count" aria-live="polite"></span>
       </div>
@@ -353,14 +359,36 @@
       <div><p class="eyebrow">Connected source</p><h2>Marketing Analytics</h2>
         <p class="sub">View Demand and Supply workbooks without editing the source sheets.</p></div>
       <div class="marketing-analytics-controls">
-        <label>Month and funnel<select id="marketingWorkbook"></select></label>
-        <label>Sheet tab<select id="marketingTab"></select></label>
+        <div class="marketing-filter-bar" role="group" aria-label="Reporting period and funnel">
+          <div class="marketing-filter-field marketing-filter-month"><span id="marketingMonthLabel">Month</span><select id="marketingMonth" aria-label="Month" hidden></select><div class="marketing-menu" data-marketing-select="marketingMonth"><button class="marketing-menu-trigger" type="button" aria-labelledby="marketingMonthLabel marketingMonthValue" aria-expanded="false"><span id="marketingMonthValue">Select month</span><span aria-hidden="true">⌄</span></button><div class="marketing-menu-options" hidden></div></div></div>
+          <div class="marketing-filter-field marketing-filter-year"><span id="marketingYearLabel">Year</span><select id="marketingYear" aria-label="Year" hidden></select><div class="marketing-menu" data-marketing-select="marketingYear"><button class="marketing-menu-trigger" type="button" aria-labelledby="marketingYearLabel marketingYearValue" aria-expanded="false"><span id="marketingYearValue">Select year</span><span aria-hidden="true">⌄</span></button><div class="marketing-menu-options" hidden></div></div></div>
+          <div class="marketing-filter-funnel"><span>Funnel</span><div class="marketing-funnel-options" role="group" aria-label="Funnel"><button type="button" data-marketing-funnel="demand" aria-pressed="false">Demand</button><button type="button" data-marketing-funnel="supply" aria-pressed="false">Supply</button></div><select id="marketingFunnel" aria-label="Funnel" hidden></select></div>
+        </div>
+        <div id="marketingWorkbookLabel" class="marketing-filter-field marketing-workbook-field" hidden><span id="marketingWorkbookTitle">Google Drive workbooks</span><select id="marketingWorkbook" aria-label="Google Drive workbooks" hidden></select><div class="marketing-menu" data-marketing-select="marketingWorkbook"><button class="marketing-menu-trigger" type="button" aria-labelledby="marketingWorkbookTitle marketingWorkbookValue" aria-expanded="false"><span id="marketingWorkbookValue">Select workbook</span><span aria-hidden="true">⌄</span></button><div class="marketing-menu-options" hidden></div></div><span class="marketing-workbook-hint">Select any workbook to change the month and funnel.</span></div>
       </div>
     </div>
     <div id="marketingAnalyticsAlert" class="callout" role="status" hidden></div>
+    <div id="marketingReadStatus" class="marketing-read-status" role="status">Sheet data has not been loaded yet.</div>
+    <details class="marketing-sheet-errors marketing-status-panel"><summary><span class="marketing-status-title">Portal source sync history</span><span class="marketing-status-action">View details <span aria-hidden="true">⌄</span></span></summary><div class="marketing-error-details" id="marketingSourceFreshness"></div></details>
+    <details class="marketing-sheet-errors marketing-status-panel" id="marketingMappingStatus"><summary><span class="marketing-status-title">Campaign mapping check</span><span class="marketing-status-action"><span id="marketingMappingSummary">Checking</span> <span aria-hidden="true">⌄</span></span></summary><div class="marketing-error-details" id="marketingMappingDetails"></div></details>
+    <div class="marketing-tab-heading">Sheet tab</div><div class="marketing-tabs-shell"><button type="button" id="marketingTabsPrevious" aria-label="Scroll sheet tabs left">&#8249;</button><nav id="marketingTabs" class="marketing-tabs" aria-label="Sheet tabs"></nav><button type="button" id="marketingTabsNext" aria-label="Scroll sheet tabs right">&#8250;</button></div><select id="marketingTab" aria-label="Selected sheet tab" hidden></select>
+    <section class="card marketing-builder" aria-labelledby="marketingBuilderTitle">
+      <div class="marketing-builder-head"><div><p class="eyebrow">YOUR REPORT</p><h3 id="marketingBuilderTitle">Dashboard builder</h3><p class="sub">Choose a sheet section and columns. Views are saved to your portal account.</p></div></div>
+      <div id="marketingBuilderPresets" class="marketing-builder-presets" aria-label="Ready-made dashboards"></div>
+      <div class="marketing-builder-controls"><label>Sheet section<select id="marketingBuilderSection"></select></label><label>Display<select id="marketingBuilderDisplay"><option value="table">Table</option><option value="chart">Bar chart</option><option value="both">Table and bar chart</option></select></label><label>View name<input id="marketingBuilderName" maxlength="80" placeholder="Name your view"></label><button id="marketingBuilderSave" type="button">Save view</button></div>
+      <button id="marketingModifyColumns" type="button" aria-haspopup="dialog" aria-controls="columnDrawer" aria-expanded="false"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16M9 5v14M16 5v14"/></svg> Modify columns</button><span id="marketingColumnCount" class="sub"></span><div id="marketingBuilderMetrics" hidden></div>
+      <div class="marketing-report-tools"><label>Search row labels<input id="marketingRowFilter" type="search" placeholder="Search the selected section"></label><label>Row label<select id="marketingRowChoice"><option value="">All rows</option></select></label><button id="marketingExportReport" type="button">Export table CSV</button></div>
+      <div class="marketing-builder-saved"><label>Saved views<select id="marketingBuilderSaved"><option value="">Choose a saved view</option></select></label><button id="marketingBuilderOpen" type="button">Open</button><button id="marketingBuilderDelete" type="button">Delete</button></div>
+      <div id="marketingBuilderStatus" role="status" class="sub"></div><div id="marketingBuilderOutput"></div>
+    </section>
+    <div class="marketing-section-intro"><div><p class="eyebrow">Sheet navigator</p><h3>Platform sections</h3><p>Explore sections identified from the sheet. Values are shown as they appear in the source.</p></div><span>READ ONLY</span></div>
+    <div id="marketingPlatforms" class="marketing-platforms" aria-live="polite"></div>
+    <div class="marketing-source-heading"><div><p class="eyebrow">Complete sheet</p><h3>Source data</h3><p>All visible cells, including campaign tables and other channels.</p></div><p>Select a cell, then shift-select another to calculate a range.</p></div>
+    <details id="marketingSheetErrors" class="marketing-sheet-errors" aria-label="Sheet error status" hidden></details>
     <div class="marketing-sheet-layout">
       <div class="card marketing-sheet-card">
         <div class="tablewrap marketing-sheet-wrap"><table id="tblMarketingAnalytics" class="marketing-sheet"></table></div>
+        <div class="marketing-page-controls" aria-label="Source data pages"><label for="marketingPageSize">Show rows:</label><select id="marketingPageSize"><option value="500">500</option><option value="1000">1,000</option><option value="2000">2,000</option><option value="all">All rows</option></select><span id="marketingPageStatus" role="status"></span><button id="marketingPageFirst" type="button" aria-label="First page">&#8676;</button><button id="marketingPagePrevious" type="button" aria-label="Previous page">&#8249;</button><button id="marketingPageNext" type="button" aria-label="Next page">&#8250;</button></div>
       </div>
       <aside class="card marketing-selection-stats" aria-label="Selected cell statistics">
         <h3>Selection</h3><p id="marketingSelectionLabel" class="sub">Select a cell to calculate.</p>
@@ -775,6 +803,6 @@
 <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
 <script src="/static/connectors.js?v=2"></script>
-  <script src="/static/app.js?v=80"></script>
+  <script src="/static/app.js?v=87"></script>
 </body>
 </html>
