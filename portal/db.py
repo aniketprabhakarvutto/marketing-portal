@@ -399,7 +399,32 @@ def using_postgres() -> bool:
 def _postgres_sql(sql: str) -> str:
     """Translate the small SQLite compatibility surface used by the app."""
     sql = sql.replace("BEGIN IMMEDIATE", "BEGIN")
-    sql = sql.replace("datetime('now')", "CURRENT_TIMESTAMP")
+    # Timestamp columns are deliberately TEXT in the portable schema.  SQLite
+    # emits UTC ``YYYY-MM-DD HH:MM:SS`` strings for datetime('now'); preserve
+    # that type and ordering on PostgreSQL instead of comparing TEXT to a
+    # timestamptz value, which aborts session lookups.
+    utc_format = "'YYYY-MM-DD HH24:MI:SS'"
+    sql = re.sub(
+        r"datetime\('now'\s*,\s*'([^']+)'\)",
+        lambda match: (
+            "TO_CHAR((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') + "
+            f"INTERVAL '{match.group(1)}', {utc_format})"
+        ),
+        sql,
+        flags=re.IGNORECASE,
+    )
+    sql = re.sub(
+        r"datetime\('now'\s*,\s*\?\)",
+        "TO_CHAR((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') + (?)::interval, " + utc_format + ")",
+        sql,
+        flags=re.IGNORECASE,
+    )
+    sql = re.sub(
+        r"datetime\('now'\)",
+        "TO_CHAR(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')",
+        sql,
+        flags=re.IGNORECASE,
+    )
     # The application uses qmark parameters to keep SQLite development simple.
     # Queries contain no literal question marks, so this is safe and preserves
     # one shared query layer for PostgreSQL's pyformat driver.

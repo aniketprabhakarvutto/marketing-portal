@@ -59,6 +59,11 @@ def postgres_schema(sqlite_schema: str) -> str:
         flags=re.IGNORECASE,
     )
     schema = re.sub(r"\bREAL\b", "DOUBLE PRECISION", schema, flags=re.IGNORECASE)
-    schema = re.sub(r"\(datetime\('now'\)\)", "CURRENT_TIMESTAMP", schema, flags=re.IGNORECASE)
+    schema = re.sub(
+        r"\(datetime\('now'\)\)",
+        "TO_CHAR(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')",
+        schema,
+        flags=re.IGNORECASE,
+    )
     return schema
 

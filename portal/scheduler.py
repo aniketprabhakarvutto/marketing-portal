@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from .config import APP
 from .automation import get_settings
 from . import platform
-from .db import query, scalar
+from .db import query, scalar, using_postgres
 from .sync import run_all
 
 log = logging.getLogger("portal.scheduler")
@@ -62,15 +62,28 @@ def _loop() -> None:
     now = _portal_now()
     full_window = max(1, APP.sync_lookback_days - 1)
     recent_cutoff = (now - timedelta(days=2)).astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-    full_runs = query(
-        "SELECT started_at FROM sync_runs WHERE status='ok' AND started_at>=? "
-        "AND julianday(window_end)-julianday(window_start)>=?", (recent_cutoff, full_window))
+    if using_postgres():
+        full_runs = query(
+            "SELECT started_at FROM sync_runs WHERE status='ok' AND started_at>=? "
+            "AND EXTRACT(EPOCH FROM (window_end::timestamptz - window_start::timestamptz)) / 86400 >= ?",
+            (recent_cutoff, full_window),
+        )
+        latest_success_sql = (
+            "SELECT MAX(EXTRACT(EPOCH FROM finished_at::timestamptz)::BIGINT) "
+            "FROM sync_runs WHERE status='ok'"
+        )
+    else:
+        full_runs = query(
+            "SELECT started_at FROM sync_runs WHERE status='ok' AND started_at>=? "
+            "AND julianday(window_end)-julianday(window_start)>=?", (recent_cutoff, full_window))
+        latest_success_sql = (
+            "SELECT MAX(CAST(strftime('%s',finished_at) AS INTEGER)) "
+            "FROM sync_runs WHERE status='ok'"
+        )
     full_today = any(_local_run_date(str(row["started_at"])) == now.date() for row in full_runs)
     last_full: date | None = now.date() if full_today else None
     settings = get_settings()
-    latest_success = scalar(
-        "SELECT MAX(CAST(strftime('%s',finished_at) AS INTEGER)) "
-        "FROM sync_runs WHERE status='ok'", default=None)
+    latest_success = scalar(latest_success_sql, default=None)
     elapsed = max(0, int(_portal_now().timestamp()) - int(latest_success or 0))
     wait_seconds = max(0, settings["topup_hours"] * 3600 - elapsed)
     next_topup = _portal_now() + timedelta(seconds=wait_seconds)
