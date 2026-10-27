@@ -311,20 +311,36 @@ def save_rule(body: dict[str, Any]) -> dict[str, Any]:
     return dict(query("SELECT * FROM transformation_rules WHERE id=?", (rule_id,))[0])
 
 
+def transformer():
+    """Load governed rules once and return a reusable value transformer."""
+    rules_by_field: dict[str, list[Any]] = {}
+    for rule in query(
+        "SELECT field,match_type,pattern,output FROM transformation_rules "
+        "WHERE enabled=1 ORDER BY priority,id"
+    ):
+        rules_by_field.setdefault(str(rule["field"]), []).append(rule)
+
+    def apply(field: str, value: str | None) -> str:
+        original = str(value or "")
+        candidate = original.lower()
+        for rule in rules_by_field.get(field, []):
+            pattern = str(rule["pattern"])
+            try:
+                matched = ((rule["match_type"] == "equals" and candidate == pattern.lower()) or
+                           (rule["match_type"] == "contains" and pattern.lower() in candidate) or
+                           (rule["match_type"] == "regex" and bool(re.search(pattern, original, re.I))))
+            except re.error:
+                matched = False
+            if matched:
+                return str(rule["output"])
+        return original
+
+    return apply
+
+
 def transform(field: str, value: str | None) -> str:
-    """Apply the first enabled, governed rule to a reporting value."""
-    original = str(value or "")
-    for rule in query("SELECT match_type,pattern,output FROM transformation_rules WHERE enabled=1 AND field=? ORDER BY priority,id", (field,)):
-        candidate, pattern = original.lower(), str(rule["pattern"])
-        try:
-            matched = ((rule["match_type"] == "equals" and candidate == pattern.lower()) or
-                       (rule["match_type"] == "contains" and pattern.lower() in candidate) or
-                       (rule["match_type"] == "regex" and bool(re.search(pattern, original, re.I))) )
-        except re.error:
-            matched = False
-        if matched:
-            return str(rule["output"])
-    return original
+    """Apply the first enabled, governed rule to one reporting value."""
+    return transformer()(field, value)
 
 
 def planning(start: str | None = None, end: str | None = None) -> dict[str, Any]:

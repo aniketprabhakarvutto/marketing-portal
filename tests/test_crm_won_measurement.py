@@ -19,7 +19,9 @@ class CampaignWonMeasurementTests(unittest.TestCase):
         db.close_connection()
         self.temp = TemporaryDirectory()
         self.old_path = APP.db_path
+        self.old_database_url = APP.database_url
         APP.db_path = str(Path(self.temp.name) / "portal.db")
+        APP.database_url = ""
         db.init_db()
         self._connection(14, "superleap_crm", "Direct CRM")
         self._connection(8, "google_sheets", "Lead-only Sheet", {"leads": "F"})
@@ -28,6 +30,7 @@ class CampaignWonMeasurementTests(unittest.TestCase):
     def tearDown(self) -> None:
         db.close_connection()
         APP.db_path = self.old_path
+        APP.database_url = self.old_database_url
         self.temp.cleanup()
 
     @staticmethod

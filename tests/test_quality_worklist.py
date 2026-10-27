@@ -14,7 +14,9 @@ class QualityWorklistTests(unittest.TestCase):
         db.close_connection()
         self.temp = TemporaryDirectory()
         self.old_path = APP.db_path
+        self.old_database_url = APP.database_url
         APP.db_path = str(Path(self.temp.name) / "portal.db")
+        APP.database_url = ""
         db.init_db()
         db.execute("INSERT INTO connections (id,provider,name) VALUES (14,'superleap_crm','Direct CRM')")
         db.execute("INSERT INTO connections (id,provider,name) VALUES (8,'google_sheets','CRM Sheet')")
@@ -22,6 +24,7 @@ class QualityWorklistTests(unittest.TestCase):
     def tearDown(self) -> None:
         db.close_connection()
         APP.db_path = self.old_path
+        APP.database_url = self.old_database_url
         self.temp.cleanup()
 
     def test_conflicts_preserve_both_counts_and_selected_source(self) -> None:

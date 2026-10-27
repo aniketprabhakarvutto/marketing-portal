@@ -16,7 +16,9 @@ class UIPreferenceTests(unittest.TestCase):
         db.close_connection()
         self.temp = TemporaryDirectory()
         self.old_db_path = APP.db_path
+        self.old_database_url = APP.database_url
         APP.db_path = f"{self.temp.name}/portal.db"
+        APP.database_url = ""
         db.init_db()
         db.execute("INSERT INTO portal_users(id,email,display_name,role,enabled,password_hash) "
                    "VALUES(1,'one@example.com','One','admin',1,'test')")
@@ -35,6 +37,7 @@ class UIPreferenceTests(unittest.TestCase):
         self.thread.join(timeout=2)
         db.close_connection()
         APP.db_path = self.old_db_path
+        APP.database_url = self.old_database_url
         self.temp.cleanup()
 
     def request(self, method: str, route: str, payload=None, identity=None,

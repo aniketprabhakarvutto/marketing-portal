@@ -92,6 +92,35 @@ vm.runInContext(`${source.slice(start,end).split('function renderPaid()')[0]};th
 })().catch(error=>{console.error(error);process.exitCode=1;});
 """)
 
+    def test_concurrent_campaign_reads_share_one_request(self) -> None:
+        self.run_node(r"""
+const assert = require('assert');
+const fs = require('fs');
+const vm = require('vm');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+const start = source.indexOf('async function fetchAllCampaigns(');
+const end = source.indexOf('/* ------------------------------------------------------------------- ga4 */',start);
+let resolvePage;
+let calls = 0;
+const context = vm.createContext({
+  api:async() => {
+    calls += 1;
+    return new Promise((resolve) => { resolvePage = resolve; });
+  },
+  qs:()=> 'start=2026-10-08&end=2026-10-08',
+});
+vm.runInContext(`${source.slice(start,end).split('function renderPaid()')[0]};this.testApi={fetchAllCampaigns};`,context);
+(async()=>{
+  const tableRead = context.testApi.fetchAllCampaigns('google_ads');
+  const calculatorRead = context.testApi.fetchAllCampaigns('google_ads');
+  await new Promise((resolve)=>setImmediate(resolve));
+  assert.strictEqual(calls,1,'identical concurrent reads must share one API request');
+  resolvePage([{campaign:'one'}]);
+  const [tableRows,calculatorRows] = await Promise.all([tableRead,calculatorRead]);
+  assert.deepStrictEqual(tableRows,calculatorRows);
+})().catch(error=>{console.error(error);process.exitCode=1;});
+""")
+
     def test_campaign_selection_reloads_values_when_reporting_date_changes(self) -> None:
         self.run_node(r"""
 const assert = require('assert');

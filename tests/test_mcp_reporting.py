@@ -13,8 +13,10 @@ class MCPReportingTests(unittest.TestCase):
     def setUp(self) -> None:
         db.close_connection()
         self.old_path = APP.db_path
+        self.old_database_url = APP.database_url
         self.temp = TemporaryDirectory()
         APP.db_path = str(Path(self.temp.name) / "reporting.db")
+        APP.database_url = ""
         db.init_db()
         db.upsert("paid_metrics", [
             {"date": "2026-10-08", "source": "google_ads", "account_id": "g-1",
@@ -34,6 +36,7 @@ class MCPReportingTests(unittest.TestCase):
     def tearDown(self) -> None:
         db.close_connection()
         APP.db_path = self.old_path
+        APP.database_url = self.old_database_url
         self.temp.cleanup()
 
     def call_campaigns(self, **arguments):

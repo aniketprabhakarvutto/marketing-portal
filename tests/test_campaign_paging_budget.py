@@ -3,8 +3,9 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
-from portal import api, db
+from portal import api, db, platform
 from portal.config import APP
 
 
@@ -12,13 +13,16 @@ class CampaignPagingBudgetTests(unittest.TestCase):
     def setUp(self):
         db.close_connection()
         self.old_path = APP.db_path
+        self.old_database_url = APP.database_url
         self.temp = TemporaryDirectory()
         APP.db_path = str(Path(self.temp.name) / "portal.db")
+        APP.database_url = ""
         db.init_db()
 
     def tearDown(self):
         db.close_connection()
         APP.db_path = self.old_path
+        APP.database_url = self.old_database_url
         self.temp.cleanup()
 
     def test_campaign_pages_are_stable_and_include_every_campaign(self):
@@ -59,6 +63,30 @@ class CampaignPagingBudgetTests(unittest.TestCase):
         self.assertEqual(row["budgeted_spend"], 120)
         self.assertEqual(row["budget_coverage_percent"], 60)
         self.assertEqual(row["pacing_percent"], 40)
+
+    def test_campaign_report_loads_transformation_rules_once(self):
+        db.upsert("paid_metrics", [
+            {"date": "2026-10-08", "source": "google_ads", "account_id": "a",
+             "campaign_id": str(i), "campaign_name": f"Campaign {i}",
+             "channel": "search", "currency": "INR", "spend": 1,
+             "connection_id": 1}
+            for i in range(3)
+        ])
+        original_query = platform.query
+        rule_queries = 0
+
+        def counting_query(sql, params=()):
+            nonlocal rule_queries
+            if "transformation_rules" in sql:
+                rule_queries += 1
+            return original_query(sql, params)
+
+        with patch.object(platform, "query", side_effect=counting_query):
+            rows = api.campaigns("2026-10-08", "2026-10-08", "google_ads", None)
+
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(rule_queries, 1,
+                         "one campaign report must not query transformation rules per cell")
 
     def test_campaign_pagination_rejects_negative_offset(self):
         with self.assertRaises(ValueError):

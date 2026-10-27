@@ -1887,12 +1887,23 @@ function renderColumnMenu() {
 async function fetchAllCampaigns(source = "") {
   const range = qs();
   const selectedSource = source ? `&source=${encodeURIComponent(source)}` : "";
-  const rows = [];
-  while (true) {
-    const page = await api(`/api/campaigns?${range}${selectedSource}&limit=1000&offset=${rows.length}`);
-    if (!Array.isArray(page)) throw new Error("Campaign report returned an invalid page.");
-    rows.push(...page);
-    if (page.length < 1000) return rows;
+  const requestKey = `${range}${selectedSource}`;
+  const pending = fetchAllCampaigns.pending || (fetchAllCampaigns.pending = new Map());
+  if (pending.has(requestKey)) return pending.get(requestKey);
+  const request = (async () => {
+    const rows = [];
+    while (true) {
+      const page = await api(`/api/campaigns?${range}${selectedSource}&limit=1000&offset=${rows.length}`);
+      if (!Array.isArray(page)) throw new Error("Campaign report returned an invalid page.");
+      rows.push(...page);
+      if (page.length < 1000) return rows;
+    }
+  })();
+  pending.set(requestKey, request);
+  try {
+    return await request;
+  } finally {
+    if (pending.get(requestKey) === request) pending.delete(requestKey);
   }
 }
 

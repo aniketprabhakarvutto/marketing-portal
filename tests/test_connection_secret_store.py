@@ -34,8 +34,10 @@ class ConnectionSecretStoreTests(unittest.TestCase):
     def setUp(self) -> None:
         db.close_connection()
         self.previous_db = APP.db_path
+        self.previous_database_url = APP.database_url
         self.temp = TemporaryDirectory()
         APP.db_path = str(Path(self.temp.name) / "portal.db")
+        APP.database_url = ""
         db.init_db()
         self.keychain = FakeKeychain()
         self.patches = [
@@ -51,6 +53,7 @@ class ConnectionSecretStoreTests(unittest.TestCase):
             item.stop()
         db.close_connection()
         APP.db_path = self.previous_db
+        APP.database_url = self.previous_database_url
         self.temp.cleanup()
 
     def raw(self, connection_id: int) -> str:

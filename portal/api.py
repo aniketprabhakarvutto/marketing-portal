@@ -1069,6 +1069,7 @@ def campaigns(start: str | None, end: str | None, source: str | None = None,
             crm_revenue_by_id[(r["channel"], campaign_value, lead_side)] = revenue
         crm_revenue_by_name[(r["channel"], _campaign_key(campaign_value), lead_side)] = revenue
 
+    transform = platform.transformer()
     out = []
     for r in query(sql, params):
         spend = float(r["spend"] or 0)
@@ -1094,8 +1095,8 @@ def campaigns(start: str | None, end: str | None, source: str | None = None,
         budget_coverage_percent = (round(budgeted_spend / spend * 100, 1)
                                    if spend > 0 else None)
         out.append({
-            "source": platform.transform("source", r["source"]), "account_id": r["account_id"], "account": r["account_name"],
-            "campaign_id": r["campaign_id"], "campaign": platform.transform("campaign_name", campaign_name), "channel": platform.transform("channel", r["channel"]),
+            "source": transform("source", r["source"]), "account_id": r["account_id"], "account": r["account_name"],
+            "campaign_id": r["campaign_id"], "campaign": transform("campaign_name", campaign_name), "channel": transform("channel", r["channel"]),
             "campaign_status": r["campaign_status"] or "",
             "daily_budget": round(float(r["daily_budget"]), 2) if r["daily_budget"] is not None else None,
             "period_budget": round(period_budget, 2) if period_budget > 0 else None,

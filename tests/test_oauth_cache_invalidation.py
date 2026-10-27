@@ -15,8 +15,10 @@ class OAuthCacheInvalidationTests(unittest.TestCase):
     def setUp(self) -> None:
         db.close_connection()
         self.old_db_path = APP.db_path
+        self.old_database_url = APP.database_url
         self.temp = TemporaryDirectory()
         APP.db_path = str(Path(self.temp.name) / "portal.db")
+        APP.database_url = ""
         db.init_db()
         self.keychain = {}
         self.patches = [
@@ -36,6 +38,7 @@ class OAuthCacheInvalidationTests(unittest.TestCase):
             item.stop()
         db.close_connection()
         APP.db_path = self.old_db_path
+        APP.database_url = self.old_database_url
         self.temp.cleanup()
 
     def _create(self):

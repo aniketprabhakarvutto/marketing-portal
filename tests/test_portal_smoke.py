@@ -26,13 +26,16 @@ class PortalSmokeTests(unittest.TestCase):
     def setUp(self) -> None:
         db.close_connection()
         self._old_db_path = APP.db_path
+        self._old_database_url = APP.database_url
         self._temp = TemporaryDirectory()
         APP.db_path = str(Path(self._temp.name) / "portal.db")
+        APP.database_url = ""
         db.init_db()
 
     def tearDown(self) -> None:
         db.close_connection()
         APP.db_path = self._old_db_path
+        APP.database_url = self._old_database_url
         self._temp.cleanup()
 
     def test_future_facts_do_not_advance_the_portal_reporting_date(self) -> None:

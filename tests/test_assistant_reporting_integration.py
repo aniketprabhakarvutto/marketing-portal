@@ -14,8 +14,10 @@ class AssistantReportingIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
         db.close_connection()
         self.old_path = APP.db_path
+        self.old_database_url = APP.database_url
         self.temp = TemporaryDirectory()
         APP.db_path = str(Path(self.temp.name) / "assistant-reporting.db")
+        APP.database_url = ""
         db.init_db()
         self.today_patch = patch.object(api, "portal_today", return_value=date(2026, 10, 9))
         self.today_patch.start()
@@ -77,6 +79,7 @@ class AssistantReportingIntegrationTests(unittest.TestCase):
         self.model_patch.stop()
         self.today_patch.stop()
         APP.db_path = self.old_path
+        APP.database_url = self.old_database_url
         self.temp.cleanup()
 
     def answer(self, question: str) -> str:

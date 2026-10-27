@@ -17,8 +17,10 @@ class SuperleapChannelBackfillTests(unittest.TestCase):
         db.close_connection()
         self.temp = TemporaryDirectory()
         self.old_path = APP.db_path
+        self.old_database_url = APP.database_url
         self.path = Path(self.temp.name) / "portal.db"
         APP.db_path = str(self.path)
+        APP.database_url = ""
         db.init_db()
         db.execute("INSERT INTO connections (id,provider,name) VALUES (14,'superleap_crm','Direct CRM')")
         db.execute("INSERT INTO connections (id,provider,name) VALUES (8,'google_sheets','Legacy sheet')")
@@ -47,6 +49,7 @@ class SuperleapChannelBackfillTests(unittest.TestCase):
     def tearDown(self) -> None:
         db.close_connection()
         APP.db_path = self.old_path
+        APP.database_url = self.old_database_url
         self.temp.cleanup()
 
     def test_backfill_makes_verified_backup_and_preserves_totals_and_legacy_feed(self) -> None:

@@ -4,13 +4,23 @@ import unittest
 import io
 import json
 from datetime import date
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from portal import assistant
+from portal import assistant, db
+from portal.config import APP
 
 
 class AssistantTests(unittest.TestCase):
     def setUp(self):
+        db.close_connection()
+        self.temp = TemporaryDirectory()
+        self.old_db_path = APP.db_path
+        self.old_database_url = APP.database_url
+        APP.db_path = str(Path(self.temp.name) / "portal.db")
+        APP.database_url = ""
+        db.init_db()
         assistant._limits.clear()
         self.range_patch = patch.object(assistant.api, "date_range", return_value=("2026-09-01", "2026-09-07"))
         self.range_patch.start()
@@ -23,6 +33,10 @@ class AssistantTests(unittest.TestCase):
         self.openai_patch.stop()
         self.range_patch.stop()
         self.model_patch.stop()
+        db.close_connection()
+        APP.db_path = self.old_db_path
+        APP.database_url = self.old_database_url
+        self.temp.cleanup()
 
     def test_action_and_instruction_requests_do_not_reach_model(self):
         with patch.object(assistant, "_ask_local_model", side_effect=AssertionError("model called")), \

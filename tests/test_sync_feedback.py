@@ -27,8 +27,10 @@ class SyncFeedbackTests(unittest.TestCase):
     def setUp(self) -> None:
         db.close_connection()
         self.original_db_path = APP.db_path
+        self.original_database_url = APP.database_url
         self.temp = TemporaryDirectory()
         APP.db_path = str(Path(self.temp.name) / "portal.db")
+        APP.database_url = ""
         db.init_db()
         self.provider = FeedbackProvider()
         self.registry_patch = patch.dict(sync.REGISTRY, {self.provider.id: self.provider})
@@ -39,6 +41,7 @@ class SyncFeedbackTests(unittest.TestCase):
         self.registry_patch.stop()
         db.close_connection()
         APP.db_path = self.original_db_path
+        APP.database_url = self.original_database_url
         self.temp.cleanup()
 
     def test_empty_fetch_does_not_claim_success_or_remove_existing_rows(self) -> None:

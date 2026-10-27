@@ -44,13 +44,14 @@ class SourceGuardTests(unittest.TestCase):
             [relevant_google, relevant_meta, crm])
 
     @patch.object(runner, 'portal_today')
+    @patch.object(runner.marketing_analytics, 'paid_rows', return_value=[])
     @patch.object(runner, '_backend_exports')
     @patch.object(runner, '_mapping_values', return_value=[])
     @patch.object(runner, '_mapping_connection')
     @patch.object(runner.sync, 'run_connection')
     @patch.object(runner.connections, 'all_connections')
     def test_export_month_must_match_cost_month(self, connections, sync, mapping,
-                                                _values, exports, today):
+                                                _values, exports, _rows, today):
         from datetime import date
         today.return_value = date(2026, 10, 25)
         connections.return_value = [source('google_ads', customer_ids=['7329923258']),

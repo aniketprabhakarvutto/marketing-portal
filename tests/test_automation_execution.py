@@ -14,13 +14,16 @@ class ScheduledExecutionTests(unittest.TestCase):
     def setUp(self):
         db.close_connection()
         self.old_path = APP.db_path
+        self.old_database_url = APP.database_url
         self.temp = TemporaryDirectory()
         APP.db_path = str(Path(self.temp.name) / "portal.db")
+        APP.database_url = ""
         db.init_db()
 
     def tearDown(self):
         db.close_connection()
         APP.db_path = self.old_path
+        APP.database_url = self.old_database_url
         self.temp.cleanup()
 
     def test_failed_scheduled_job_is_reported_and_not_retried_each_minute(self):

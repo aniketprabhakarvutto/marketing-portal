@@ -19,9 +19,11 @@ class AuthBoundaryTests(unittest.TestCase):
         db.close_connection()
         self.temp = TemporaryDirectory()
         self.old_path = APP.db_path
+        self.old_database_url = APP.database_url
         self.old_cookie_secure = APP.secure_cookie
         self.old_trusted_proxy_ips = APP.trusted_proxy_ips
         APP.db_path = f"{self.temp.name}/portal.db"
+        APP.database_url = ""
         APP.secure_cookie = False
         db.init_db()
         self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
@@ -35,6 +37,7 @@ class AuthBoundaryTests(unittest.TestCase):
         self.thread.join(timeout=2)
         db.close_connection()
         APP.db_path = self.old_path
+        APP.database_url = self.old_database_url
         APP.secure_cookie = self.old_cookie_secure
         APP.trusted_proxy_ips = self.old_trusted_proxy_ips
         self.temp.cleanup()

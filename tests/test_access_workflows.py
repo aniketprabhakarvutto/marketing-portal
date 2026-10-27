@@ -21,8 +21,10 @@ class AccessWorkflowTests(unittest.TestCase):
         db.close_connection()
         self.temp = TemporaryDirectory()
         self.old_path = APP.db_path
+        self.old_database_url = APP.database_url
         self.old_secure_cookie = APP.secure_cookie
         APP.db_path = f"{self.temp.name}/portal.db"
+        APP.database_url = ""
         APP.secure_cookie = False
         db.init_db()
         self.admin = auth.create_first_admin("admin@example.com", "Admin", ADMIN_PASSWORD)
@@ -30,6 +32,7 @@ class AccessWorkflowTests(unittest.TestCase):
     def tearDown(self) -> None:
         db.close_connection()
         APP.db_path = self.old_path
+        APP.database_url = self.old_database_url
         APP.secure_cookie = self.old_secure_cookie
         self.temp.cleanup()
 
