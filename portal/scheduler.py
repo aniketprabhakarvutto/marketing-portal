@@ -111,7 +111,9 @@ def _loop() -> None:
                         result["id"], result["status"], result["message"])
         except Exception:  # noqa: BLE001 — the loop must survive a bad sync
             log.exception("scheduled sync failed")
-            next_topup = _portal_now() + timedelta(hours=get_settings()["topup_hours"])
+            # The database may be the failing dependency. Do not query it
+            # again from the recovery path or the scheduler thread can die.
+            next_topup = _portal_now() + timedelta(hours=APP.topup_hours)
 
 
 def start_scheduler() -> None:

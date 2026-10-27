@@ -465,8 +465,22 @@ class _PostgresConnection:
     def __init__(self, connection):
         self._connection = connection
 
+    @property
+    def closed(self) -> bool:
+        return bool(self._connection.closed)
+
     def execute(self, sql: str, params: Sequence[Any] = ()):
-        cursor = self._connection.execute(_postgres_sql(sql), params)
+        try:
+            cursor = self._connection.execute(_postgres_sql(sql), params)
+        except Exception:
+            # PostgreSQL aborts a transaction after any statement error.
+            # SQLite does not, so reset the transaction before the shared
+            # query layer handles another request or scheduler iteration.
+            try:
+                self._connection.rollback()
+            except Exception:
+                self._connection.close()
+            raise
         wrapped = _PostgresCursor(cursor)
         # psycopg does not provide sqlite's lastrowid.  Only identity-backed
         # portal tables may call LASTVAL(). Calling it after inserts such as
@@ -637,6 +651,9 @@ def _migrate_connection_scoped_keys(conn: sqlite3.Connection) -> None:
 def connect():
     """One connection per thread for SQLite development or PostgreSQL production."""
     conn = getattr(_local, "conn", None)
+    if conn is not None and getattr(conn, "closed", False):
+        _local.conn = None
+        conn = None
     if conn is None:
         if using_postgres():
             try:

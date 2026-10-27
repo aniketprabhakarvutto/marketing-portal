@@ -1058,7 +1058,7 @@ def campaigns(start: str | None, end: str | None, source: str | None = None,
     crm_revenue_by_name: dict[tuple[str, str, str], float] = {}
     crm_revenue_by_id: dict[tuple[str, str, str], float] = {}
     for r in query(
-        "SELECT channel, TRIM(utm_campaign) campaign, lead_type, COALESCE(SUM(revenue),0) revenue "
+        "SELECT channel, LOWER(TRIM(utm_campaign)) campaign, lead_type, COALESCE(SUM(revenue),0) revenue "
         "FROM " + CRM_LEADS_FROM + " WHERE created_date BETWEEN ? AND ? AND TRIM(utm_campaign) != '' "
         "GROUP BY channel, LOWER(TRIM(utm_campaign)), lead_type", (s, e),
     ):
