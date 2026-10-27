@@ -155,6 +155,7 @@ CREATE TABLE IF NOT EXISTS crm_daily (
     completed   INTEGER NOT NULL DEFAULT 0,    -- visit done / inspection done
     won         INTEGER NOT NULL DEFAULT 0,    -- sales done / procured
     revenue     REAL    NOT NULL DEFAULT 0,
+    origin      TEXT    NOT NULL DEFAULT 'rollup',
     connection_id INTEGER NOT NULL DEFAULT 0,
     ingested_at TEXT    NOT NULL DEFAULT (datetime('now')),
     UNIQUE (connection_id, date, channel, source, lead_type)
@@ -168,6 +169,7 @@ CREATE TABLE IF NOT EXISTS crm_city_daily (
     lead_type   TEXT    NOT NULL DEFAULT '',
     leads       INTEGER NOT NULL DEFAULT 0,
     won         INTEGER NOT NULL DEFAULT 0,
+    origin      TEXT    NOT NULL DEFAULT 'rollup',
     connection_id INTEGER NOT NULL DEFAULT 0,
     ingested_at TEXT    NOT NULL DEFAULT (datetime('now')),
     UNIQUE (connection_id, date, city, lead_type)

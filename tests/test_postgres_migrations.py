@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from portal import db
+from portal.migrations import MIGRATIONS
 from portal.models import TABLE_MODELS, postgres_schema
 
 
@@ -18,6 +19,10 @@ class PostgresMigrationTests(unittest.TestCase):
         self.assertIn("CURRENT_TIMESTAMP", schema)
         self.assertNotIn("datetime('now')", schema)
         self.assertNotIn("CREATE TABLE IF NOT EXISTS paid_metrics (\n    id               INTEGER PRIMARY KEY", schema)
+        self.assertIn("origin      TEXT    NOT NULL DEFAULT 'rollup'", db.SCHEMA)
+
+    def test_crm_provenance_forward_migration_is_registered(self) -> None:
+        self.assertIn("0002_crm_origins", MIGRATIONS)
 
     def test_migration_history_is_qualified_to_public_schema(self) -> None:
         migration_source = (Path(__file__).resolve().parents[1] / "portal" / "migrations" / "__init__.py").read_text()
