@@ -3,6 +3,13 @@ const message = document.querySelector("#message");
 const password = document.querySelector("#password");
 const togglePassword = document.querySelector("#togglePassword");
 let setup = false;
+const AUTH_TIMEOUT_MS = 15000;
+
+function fetchWithTimeout(url, options = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), AUTH_TIMEOUT_MS);
+  return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timer));
+}
 
 togglePassword.addEventListener("click", () => {
   const isVisible = password.type === "text";
@@ -56,7 +63,7 @@ form.addEventListener("submit", async (event) => {
       password: password.value,
     };
     if (setup) body.display_name = document.querySelector("#displayName").value;
-    const response = await fetch(setup ? "/api/auth/setup" : "/api/auth/login", {
+    const response = await fetchWithTimeout(setup ? "/api/auth/setup" : "/api/auth/login", {
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
@@ -68,7 +75,9 @@ form.addEventListener("submit", async (event) => {
     navigating = true;
     location.replace(`/${location.hash}`);
   } catch (error) {
-    message.textContent = error.message || "Sign-in failed.";
+    message.textContent = error.name === "AbortError"
+      ? "The portal took too long to respond. Check the portal connection and try again."
+      : (error.message || "Sign-in failed.");
   } finally {
     if (!navigating) {
       button.disabled = false;
