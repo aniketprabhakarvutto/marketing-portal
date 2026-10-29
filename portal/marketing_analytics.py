@@ -159,13 +159,16 @@ def _tabs(metadata: dict) -> list[dict]:
 def _saved_workbook(conn) -> dict:
     """Build a listing row using only the saved connection record."""
     name = conn.name
+    sheet_name = str(conn.get("sheet_name") or "").strip()
     return {
         "connection_id": conn.id,
         "name": name,
         "role": _role(conn),
         "month": _month_key(name) or str(conn.get("analytics_month") or "").strip(),
         "spreadsheet_id": _spreadsheet_id(conn),
-        "tabs": [],
+        # The configured tab is enough to open the saved workbook immediately.
+        # A later explicit refresh replaces it with the complete Drive metadata.
+        "tabs": [{"id": 0, "title": sheet_name}] if sheet_name else [],
         "status": "ready",
         "message": "",
     }

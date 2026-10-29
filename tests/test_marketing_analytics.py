@@ -166,11 +166,12 @@ class MarketingAnalyticsTests(unittest.TestCase):
     def test_workbook_listing_uses_saved_records_without_google_requests(self, connections, metadata, drive_files):
         connections.return_value = [Connection(3, "google_sheets", "Demand October 2026", {
             "spreadsheet_url": "12345678901234567890", "analytics_role": "demand",
+            "sheet_name": "Backend",
         }, {}, True)]
         result = analytics.workbooks()
         self.assertEqual(result, [{
             "connection_id": 3, "name": "Demand October 2026", "role": "demand",
-            "month": "2026-10", "spreadsheet_id": "12345678901234567890", "tabs": [],
+            "month": "2026-10", "spreadsheet_id": "12345678901234567890", "tabs": [{"id": 0, "title": "Backend"}],
             "status": "ready", "message": "",
         }])
         metadata.assert_not_called()
