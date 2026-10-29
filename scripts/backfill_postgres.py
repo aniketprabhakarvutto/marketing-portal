@@ -40,7 +40,15 @@ def source_columns(source: sqlite3.Connection, table: str) -> list[str]:
 
 
 def source_counts(source: sqlite3.Connection) -> dict[str, int]:
-    return {table: int(source.execute(f"SELECT count(*) FROM {quoted(table)}").fetchone()[0]) for table in TABLES}
+    present = {
+        row[0]
+        for row in source.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    }
+    return {
+        table: int(source.execute(f"SELECT count(*) FROM {quoted(table)}").fetchone()[0])
+        if table in present else 0
+        for table in TABLES
+    }
 
 
 def target_counts(target) -> dict[str, int]:
