@@ -249,7 +249,7 @@ class SuperleapProviderTests(unittest.TestCase):
         db.upsert("crm_leads", [{
             "external_id": "lead-1", "created_date": day, "utm_source": "Google",
             "utm_medium": "Paid", "utm_campaign": "Jaipur Demand", "channel": "google_ads",
-            "lead_type": "buy", "city": "Jaipur", "stage": "Sales Done", "is_sale": 1,
+            "lead_type": "buy", "city": "Jaipur", "stage": "Sales Done", "is_sale": 1, "revenue": 1200,
             "connection_id": 7,
         }])
         db.upsert("crm_daily", [{
@@ -263,10 +263,12 @@ class SuperleapProviderTests(unittest.TestCase):
         daily = db.query("SELECT leads FROM crm_daily WHERE connection_id=7 AND date=?", (day,))
         legacy = db.query("SELECT leads FROM crm_daily WHERE connection_id=99 AND date=?", (day,))
         campaign = db.query("SELECT campaign_name, leads, won FROM crm_campaign_daily WHERE connection_id=7")
+        revenue = db.query("SELECT campaign_name, revenue FROM crm_campaign_revenue_daily WHERE connection_id=7")
         self.assertEqual(daily[0]["leads"], 1)
         self.assertEqual(legacy[0]["leads"], 4)
         self.assertEqual((campaign[0]["campaign_name"], campaign[0]["leads"], campaign[0]["won"]),
                          ("Jaipur Demand", 1, 1))
+        self.assertEqual((revenue[0]["campaign_name"], revenue[0]["revenue"]), ("Jaipur Demand", 1200))
 
     def test_stage_rebuild_repairs_direct_rows_and_preserves_legacy_aggregate(self) -> None:
         day = "2026-10-07"

@@ -1,4 +1,4 @@
-# Linux server deployment
+# Linux server deployment (Supabase PostgreSQL)
 
 This deployment path is separate from the Mac launcher. It leaves `run.sh`,
 the local database, macOS Keychain, and the local AI runtime untouched.
@@ -11,7 +11,8 @@ not replace the normal macOS database or conflict with the portal on port
 
 ```bash
 cp deploy/local.env.example deploy/local.env
-# Set a generated PORTAL_SECRET_ENCRYPTION_KEY in deploy/local.env.
+# Set generated, distinct PORTAL_SECRET_ENCRYPTION_KEY and
+# PORTAL_MFA_ENCRYPTION_KEY values in deploy/local.env.
 docker compose -f docker-compose.local.yml up -d --build
 curl -fsS http://127.0.0.1:8788/healthz
 ```
@@ -37,22 +38,21 @@ docker compose -f docker-compose.local.yml down -v
 ## What this deploys
 
 - the existing Python portal and its scheduler in one Docker container;
-- a persistent SQLite database at `/srv/vortex-veri/data/portal.db` on the server;
+- persistence in the existing Supabase PostgreSQL database, selected by
+  `PORTAL_DATABASE_URL`; the container holds no application data of its own;
 - encrypted connector credentials stored in that database through Fernet;
 - localhost-only server binding for a reverse proxy or Cloudflare Tunnel.
 
-It does not copy the laptop database, sessions, users, credentials, or local
-Ollama model. Create the server administrator and reconnect each provider after
-the server is reachable. Migrating production analytics to PostgreSQL is a
-separate project; this deployment keeps SQLite on a server-local persistent disk
-to avoid changing the running portal's reporting behaviour.
+The `/data` volume is only scratch space (and the legacy SQLite path, unused
+once `PORTAL_DATABASE_URL` is set). Users, sessions and connector credentials
+live in Supabase. Because credentials are Fernet-encrypted, the server must use
+the **same** `PORTAL_SECRET_ENCRYPTION_KEY` that encrypted them; with a new key,
+reconnect each provider. Back that key up in a password manager, never in Git.
 
-## Oracle VM preparation
+## VM preparation (Ubuntu 24.04)
 
-On an Ubuntu 24.04 VM, install Docker Engine and the Compose plugin using the
-official Docker instructions. Do not expose port 8787 to the internet.
-
-Clone the private repository and prepare the persistent data directory:
+Install Docker Engine and the Compose plugin using the official Docker
+instructions. Do not expose port 8787 to the internet.
 
 ```bash
 git clone https://github.com/aniketprabhakarvutto/marketing-portal.git
@@ -62,16 +62,61 @@ cp deploy/production.env.example deploy/production.env
 chmod 600 deploy/production.env
 ```
 
-Set a real HTTPS hostname in `PORTAL_OAUTH_REDIRECT_URI`, add a newly generated
-Fernet key, and set a different long MCP token if remote MCP is required. Keep
-those values out of GitHub.
+Edit `deploy/production.env`:
 
-Start the portal:
+- `PORTAL_DATABASE_URL`: the Supabase connection string with `?sslmode=require`.
+  Use the pooler (session mode) URL if the VM has no IPv6.
+- `PORTAL_SECRET_ENCRYPTION_KEY`: the existing key (or a newly generated one).
+- `PORTAL_MFA_ENCRYPTION_KEY`: a separate Fernet key used only to encrypt MFA
+  seeds. Back it up in the same controlled secret store as the connector key.
+- `PORTAL_OAUTH_REDIRECT_URI`: your real HTTPS hostname.
+- `PORTAL_MCP_TOKEN`: a long, different token if remote MCP is needed.
+
+Start the portal and wait for readiness before routing traffic to it:
 
 ```bash
 docker compose -f docker-compose.production.yml up -d --build
-curl -fsS http://127.0.0.1:8787/healthz
+until [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8787/readyz)" = 200 ]; do sleep 2; done
+echo ready
 ```
+
+On first start the portal applies its versioned migrations to Supabase. Take a
+Supabase backup first if the database already holds data you care about.
+
+## One-time SQLite to PostgreSQL migration
+
+Use this only when moving an existing local SQLite portal database into a new,
+empty PostgreSQL database. Do not point it at the live PostgreSQL database
+used by the portal. It deliberately refuses a populated target unless an
+earlier run against the same source was interrupted.
+
+1. Stop the portal so no writes occur during the transfer.
+2. Back up both the SQLite file and the target PostgreSQL database.
+3. Set `PORTAL_DATABASE_URL` in the environment to the new PostgreSQL target.
+4. Run the source inspection first:
+
+```bash
+python3 scripts/backfill_postgres.py --dry-run
+```
+
+5. Start the portal once so it applies the PostgreSQL schema migrations, then
+   stop it again.
+6. Copy and verify every application table:
+
+```bash
+python3 scripts/backfill_postgres.py
+```
+
+7. The command prints source and target counts and fails if any count differs.
+   Only use `--resume` after an interrupted run against that exact source and
+   otherwise untouched target.
+8. Start the portal with the PostgreSQL URL, verify `/readyz`, sign in, and
+   check connections, users, CRM, and reports before retiring the SQLite file.
+
+The SQLite source is opened read-only and is never modified. Keep it and its
+backup until the PostgreSQL cutover has been accepted. Connector credentials
+need a separate check: a Mac Keychain-backed SQLite setup and a Fernet-encrypted
+PostgreSQL setup do not use the same secret-store format.
 
 ## Public access
 
@@ -82,56 +127,38 @@ headers. HTTPS is required because the portal's session cookies are secure.
 
 Run exactly one application instance. Each instance starts its own scheduler,
 keeps login throttles in process memory, and performs interrupted-job recovery.
-Do not scale replicas or share this SQLite file over network storage. A
-multi-instance deployment requires shared coordination and a tested database
-migration before it is safe.
+Do not scale replicas. Also stop the Mac portal (or set `SCHEDULER_ENABLED=0`
+there) so two schedulers do not sync against the same Supabase database.
+
+Before network exposure, every enabled password account must finish MFA
+enrollment. Startup fails closed when the MFA key is absent or any enabled
+account is unenrolled. Keep port 8787 bound to loopback and terminate HTTPS at
+the trusted proxy or tunnel.
 
 Use an HTTPS reverse proxy with bounded connections and request body, header and
-upstream timeouts. Restrict the portal port to loopback as in the Compose file.
-Monitor `/readyz` from the trusted local network: it checks a database query and
-returns 503 if it fails. `/healthz` only checks that the HTTP process responds.
-Neither endpoint proves that connectors are fresh or backups are restorable.
-Configure alerts for readiness failures, disk capacity, failed sync and backup
-jobs, and backup age. The health check in the Docker image uses `/readyz`.
+upstream timeouts. Monitor `/readyz` from the trusted local network: it runs a
+database query and returns 503 if Supabase is unreachable. `/healthz` only
+checks that the HTTP process responds. Neither proves connectors are fresh.
+Alert on readiness failures, failed syncs and disk capacity.
 
-### Encrypted backup recovery
+## Backups
 
-Encrypted `.vvb` snapshots use AES-256-GCM. Store the recovery key in a
-password manager outside the laptop and never commit it to Git. The key is
-required to restore the snapshot. The backup contains portal database records,
-but does not contain connector credentials stored in macOS Keychain.
-
-To verify a downloaded snapshot without replacing the live database, use a
-Python environment with `cryptography` installed:
-
-```sh
-python3 scripts/restore_encrypted_backup.py /path/to/backup.vvb /path/to/recovery-key.txt /path/to/new-restore.db
-```
-
-The destination must not exist. The script authenticates the ciphertext and
-checks SQLite integrity. Inspect the restored copy before following the normal
-offline restoration procedure. A one-time upload to Drive does not schedule
-future uploads; configure and test an authenticated background uploader.
-
-The backup job writes to the mounted backups directory, but a mount on the same
-server is not an off-server backup. Configure a backup job, copy encrypted
-backups to independent storage, protect and separately back up the Fernet key,
-and regularly restore a backup into an isolated environment. A local test
-cannot establish that the production job, remote copy or recovery works.
+The database is Supabase, so backups are Supabase's: enable daily backups (or
+Point-in-Time Recovery) in the Supabase project, and periodically test a
+restore into a separate project. Separately back up the Fernet key. The SQLite
+backup job and `.vvb` snapshots (`scripts/restore_encrypted_backup.py`) apply
+only to the old SQLite file, `~/Library/Application Support/VortexVeri/data/portal.db`;
+keep a copy of it until you are satisfied the Supabase data is complete.
 
 ## Updates
-
-On the server:
 
 ```bash
 git pull --ff-only
 docker compose -f docker-compose.production.yml up -d --build
 ```
 
-This replaces the application container while retaining the server database in
-`/srv/vortex-veri/data`. Scheduled database backups are stored separately in
-`/srv/vortex-veri/backups`. Copy both folders to storage outside the server
-before upgrades.
+This replaces the container; data stays in Supabase. Wait for `/readyz` to
+return 200 again before testing.
 
 ## Marketing Analytics automation
 

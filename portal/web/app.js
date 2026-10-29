@@ -10,6 +10,19 @@ let currentUser = null;
 const ICONS = {
   columns: `<svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16M9 5v14M16 5v14"/></svg>`,
   refresh: `<svg class="icon icon-refresh" aria-hidden="true" viewBox="0 0 24 24"><path d="M20 7v5h-5"/><path d="M4 17v-5h5"/><path d="M6.1 8.1A7 7 0 0 1 18.8 10L20 12"/><path d="M17.9 15.9A7 7 0 0 1 5.2 14L4 12"/></svg>`,
+  report: `<svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M5 4h14v16H5zM8 8h8M8 12h8M8 16h5"/></svg>`,
+  alert: `<svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>`,
+  budget: `<svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M6 4h12M6 9h12M7 4c5 0 7 2 7 5s-2 5-7 5l9 6M7 14h4"/></svg>`,
+  recommendation: `<svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0-3.5 10.9c.9.7 1.5 1.6 1.5 2.6h4c0-1 .6-1.9 1.5-2.6A6 6 0 0 0 12 3ZM10 20h4M9 17h6"/></svg>`,
+  crm: `<svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M4 5h16v12H8l-4 3V5Z"/><path d="M8 9h8M8 13h5"/></svg>`,
+  quality: `<svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.8 2.8 8.3 7 10 4.2-1.7 7-5.2 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-5"/></svg>`,
+  upload: `<svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 16V4m0 0L7 9m5-5 5 5M5 20h14"/></svg>`,
+  archive: `<svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h16v13H4zM3 4h18v3H3zM9 11h6"/></svg>`,
+  rules: `<svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h2M10 12h10M4 18h7M15 18h5"/><circle cx="16" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="13" cy="18" r="2"/></svg>`,
+  success: `<svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12 2.5 2.5L16 9"/></svg>`,
+  warning: `<svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3 2.8 20h18.4L12 3Z"/><path d="M12 9v5M12 17h.01"/></svg>`,
+  error: `<svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/></svg>`,
+  close: `<svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>`,
 };
 const PAGE_INFO = {
   overview: ["Performance overview", "Monitor spend, traffic, leads, and completed outcomes in one view."],
@@ -337,13 +350,30 @@ async function syncLatest(button) {
   }
 }
 
+const API_REQUEST_TIMEOUT_MS = 25000;
+
 async function api(path, opts = {}) {
+  const { timeoutMs = API_REQUEST_TIMEOUT_MS, signal: callerSignal, ...fetchOptions } = opts;
   const headers = new Headers(opts.headers || {});
   const method = String(opts.method || "GET").toUpperCase();
   if (!/^(GET|HEAD|OPTIONS)$/.test(method) && csrfToken && !path.startsWith("/api/auth/login") && !path.startsWith("/api/auth/setup")) {
     headers.set("X-CSRF-Token", csrfToken);
   }
-  const res = await fetch(path, { ...opts, headers, credentials: "same-origin" });
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeout = window.setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
+  const abortForCaller = () => controller.abort();
+  callerSignal?.addEventListener("abort", abortForCaller, { once: true });
+  let res;
+  try {
+    res = await fetch(path, { ...fetchOptions, headers, credentials: "same-origin", signal: controller.signal });
+  } catch (error) {
+    if (timedOut) throw new Error("The portal took too long to respond. Please retry.");
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+    callerSignal?.removeEventListener("abort", abortForCaller);
+  }
   if (res.status === 401 && !path.startsWith("/api/auth/status")) {
     location.replace(`/login${location.hash}`);
     throw new Error("Your portal session expired. Sign in again.");
@@ -408,13 +438,13 @@ function removeUiPreference(key) {
   queueUiPreferenceWrite(key, null);
 }
 
-async function hydrateUiPreferences(user) {
+async function hydrateUiPreferences(user, response = null) {
   const owner = String(user.id ?? user.email);
   const previousOwner = localStorage.getItem("portalUiPreferencesMigratedFor");
   if (previousOwner && previousOwner !== owner) {
     UI_PREFERENCE_KEYS.forEach((key) => localStorage.removeItem(key));
   }
-  const response = await api("/api/ui-preferences");
+  response = response || await api("/api/ui-preferences");
   const saved = response.preferences || {};
   const migrateLegacy = !previousOwner;
   const migrationFailures = [];
@@ -636,7 +666,7 @@ function renderCalendarPresets() {
   $("#calendarPresets").innerHTML = [...DEFAULT_DATE_PRESETS, ...custom].map((preset) => `
     <span class="calendar-preset-chip">
       <button type="button" data-calendar-preset="${Number(preset.days)}">${esc(preset.label)}</button>
-      ${preset.id.startsWith("default-") ? "" : `<button type="button" class="calendar-preset-remove" data-delete-calendar-preset="${esc(preset.id)}" aria-label="Delete ${esc(preset.label)} preset">×</button>`}
+      ${preset.id.startsWith("default-") ? "" : `<button type="button" class="calendar-preset-remove" data-delete-calendar-preset="${esc(preset.id)}" aria-label="Delete ${esc(preset.label)} preset"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button>`}
     </span>`).join("");
 }
 
@@ -1480,9 +1510,12 @@ const TILES = [
   { k: "revenue", label: "CRM revenue", source: "crm", f: (v) => money(v, true), better: "higher" },
   { k: "roas", label: "CRM ROAS", source: "crm", f: (v) => v == null ? "—" : `${dec(v)}×`, better: "higher" },
 ];
+let initialOverviewBundle = null;
 
 async function loadOverview() {
-  const ov = await api(`/api/overview?${qs()}`);
+  const bundle = initialOverviewBundle;
+  initialOverviewBundle = null;
+  const ov = bundle?.overview || await api(`/api/overview?${qs()}`);
   state.overview = ov;
   const crmCoverage = ov.coverage?.crm;
   const crmAvailable = ov.availability?.crm !== false;
@@ -1529,7 +1562,7 @@ async function loadOverview() {
   $("#tilesSecondary").innerHTML = additionalMetrics.map(renderTile).join("");
   $("#additionalMetricCount").textContent = String(additionalMetrics.length);
 
-  const ts = await api(`/api/timeseries?${qs()}`);
+  const ts = bundle?.timeseries || await api(`/api/timeseries?${qs()}`);
   const S = ts.series;
   const spendSeries = Object.entries(PAID_PLATFORM_META).map(([source, platform]) => ({
     key: `spend_${source}`, label: platform.label, color: platform.color,
@@ -1545,7 +1578,7 @@ async function loadOverview() {
   legend($("#lgLeads"), leadSeries);
   lineChart($("#chLeads"), ts.days, leadSeries, (v) => num(v));
 
-  const chans = await api(`/api/channels?${qs()}`);
+  const chans = bundle?.channels || await api(`/api/channels?${qs()}`);
   const label = (r) => {
     const nice = {
       google_ads: "Google Ads", meta_ads: "Meta Ads", linkedin_ads: "LinkedIn Ads",
@@ -2701,6 +2734,18 @@ let marketingTabRequest = 0;
 let marketingRowOffset = 0;
 let marketingPageKey = "";
 let marketingPageSize = 500;
+
+function setMarketingAnalyticsRetry(message = "", retry = null) {
+  const panel = $("#marketingAnalyticsRetry");
+  const detail = $("#marketingAnalyticsRetryMessage");
+  const button = $("#marketingAnalyticsRetryButton");
+  if (!panel || !detail || !button) return;
+  const visible = Boolean(message);
+  panel.hidden = !visible;
+  detail.textContent = message;
+  button.onclick = retry ? () => { Promise.resolve(retry()).catch(() => {}); } : null;
+}
+
 async function loadMarketingTab() {
   const request = ++marketingTabRequest;
   const [connectionValue, spreadsheetId] = String($("#marketingWorkbook").value || "").split("|");
@@ -2722,7 +2767,14 @@ async function loadMarketingTab() {
     const modified = data.workbook_modified_time ? new Date(data.workbook_modified_time) : null;
     const freshness = modified && !Number.isNaN(modified.getTime()) ? `Workbook modified ${modified.toLocaleString()}` : data.workbook_modified_status === "permission_required" ? "Workbook modification time unavailable. Reconnect this Google Sheets source and allow Drive metadata access." : data.workbook_modified_status === "api_not_enabled" ? "Workbook modification time unavailable. Enable the Google Drive API in this connection's Google Cloud project." : "Workbook modification time unavailable";
     $("#marketingReadStatus").textContent = `${data.role === "supply" ? "Supply" : "Demand"} · ${tab} · Read ${new Date().toLocaleString()} · ${freshness} · Source sync time unavailable`;
-  } catch (error) { if (request === marketingTabRequest) { renderMarketingSheet([]); $("#marketingReadStatus").textContent = `Could not load ${tab}. Check the Google Sheets connection.`; } throw error; }
+  } catch (error) {
+    if (request === marketingTabRequest) {
+      renderMarketingSheet([]);
+      $("#marketingReadStatus").textContent = `Could not load ${tab}. Check the Google Sheets connection.`;
+      setMarketingAnalyticsRetry(`Could not load ${tab}. ${error.message}`, () => loadMarketingTab());
+    }
+    throw error;
+  }
 }
 
 function renderMarketingTabs() {
@@ -2788,7 +2840,19 @@ async function loadMarketingMapping(month) {
   } catch (_) { if (request === marketingMappingRequest) { summary.textContent = "Unavailable"; details.textContent = "The mapping check could not be loaded."; } }
 }
 
-async function loadMarketingAnalytics() {
+async function loadMarketingAnalytics({ refreshWorkbooks = false } = {}) {
+  const refreshButton = $("#marketingRefreshWorkbooks");
+  refreshButton.onclick = async () => {
+    setButtonBusy(refreshButton, true);
+    try {
+      const loaded = await loadMarketingAnalytics({ refreshWorkbooks: true });
+      if (loaded) toast("Workbook list refreshed from Google Drive");
+    } catch (error) {
+      toast(`Could not refresh workbooks: ${error.message}`, "error");
+    } finally {
+      setButtonBusy(refreshButton, false);
+    }
+  };
   $("#marketingPageSize").onchange = async (event) => { marketingPageSize = event.target.value === "all" ? "all" : Number(event.target.value); marketingRowOffset = 0; try { await loadMarketingTab(); } catch (error) { toast(error.message, "error"); } };
   $("#marketingPageFirst").onclick = async () => { marketingRowOffset = 0; try { await loadMarketingTab(); } catch (error) { toast(error.message, "error"); } };
   $("#marketingPagePrevious").onclick = async () => { marketingRowOffset = Math.max(0, marketingRowOffset - marketingPageSize); try { await loadMarketingTab(); } catch (error) { toast(error.message, "error"); } };
@@ -2801,7 +2865,17 @@ async function loadMarketingAnalytics() {
     const success = last && !Number.isNaN(last.getTime()) ? last.toLocaleString() : "No successful sync recorded";
     return `<li class="marketing-status-row"><span class="marketing-status-main"><strong>${esc(c.name)}</strong><span>Last successful sync: ${esc(success)}</span></span><span class="marketing-status-badge">Latest status: ${esc(c.last_status || "unknown")}</span></li>`;
   }).join("")}</ul>` : "<p>No enabled advertising or CRM sources found.</p>");
-  const response = await api("/api/marketing-analytics/workbooks");
+  $("#marketingReadStatus").textContent = refreshWorkbooks ? "Refreshing workbook list from Google Drive…" : "Loading saved workbook information…";
+  let response;
+  try {
+    response = await api(`/api/marketing-analytics/workbooks${refreshWorkbooks ? "?refresh=1" : ""}`);
+  } catch (error) {
+    renderMarketingSheet([]);
+    $("#marketingReadStatus").textContent = "Workbook information could not be loaded.";
+    setMarketingAnalyticsRetry(`Workbook information could not be loaded. ${error.message}`, () => loadMarketingAnalytics({ refreshWorkbooks }));
+    return false;
+  }
+  setMarketingAnalyticsRetry();
   state.marketingWorkbooks = response.workbooks || [];
   const workbookSelect = $("#marketingWorkbook"), tabSelect = $("#marketingTab");
   const previous = workbookSelect.value;
@@ -2864,6 +2938,7 @@ async function loadMarketingAnalytics() {
     event.preventDefault();
     updateMarketingSelection(Number(cell.dataset.row), Number(cell.dataset.column), event.shiftKey).catch((error) => toast(error.message, "error"));
   };
+  return true;
 }
 
 async function loadSource(offset = 0, search = "") {
@@ -3099,7 +3174,7 @@ function renderSavedViews() {
   const views = getSavedViews();
   node.innerHTML = views.length ? views.map((view) => `<div class="saved-view">
     <button class="saved-view-open" data-view="${view.id}"><b>${esc(view.name)}</b><small>${esc(PAGE_INFO[view.tab]?.[0] || view.tab)} · ${esc(view.start)} → ${esc(view.end)}</small></button>
-    <button class="icon-button saved-view-delete" data-delete-view="${view.id}" aria-label="Delete ${esc(view.name)}">×</button>
+    <button class="icon-button saved-view-delete" data-delete-view="${view.id}" aria-label="Delete ${esc(view.name)}">${ICONS.close}</button>
   </div>`).join("") : `<div class="empty compact">No saved views yet. Set up any report and press <b>Save view</b>.</div>`;
 }
 
@@ -3333,57 +3408,57 @@ function renderConnectorDirectory() {
 function renderCustomMetrics() {
   const node = $("#customMetrics");
   if (!node) return;
-  node.innerHTML = state.customMetrics.length ? state.customMetrics.map((metric) => `<div class="metric-item"><span><b>${esc(metric.name)}</b><small>${esc(metric.numerator)} ÷ ${esc(metric.denominator)} · ${esc(metric.format)}</small></span><button class="metric-view" data-view-metric="${esc(metric.id)}">View column</button><button class="icon-button" data-delete-metric="${esc(metric.id)}" aria-label="Delete ${esc(metric.name)}">×</button></div>`).join("") : `<div class="empty compact">Your added columns will appear here.</div>`;
+  node.innerHTML = state.customMetrics.length ? state.customMetrics.map((metric) => `<div class="metric-item"><span><b>${esc(metric.name)}</b><small>${esc(metric.numerator)} ÷ ${esc(metric.denominator)} · ${esc(metric.format)}</small></span><button class="metric-view" data-view-metric="${esc(metric.id)}">View column</button><button class="icon-button" data-delete-metric="${esc(metric.id)}" aria-label="Delete ${esc(metric.name)}">${ICONS.close}</button></div>`).join("") : `<div class="empty compact">Your added columns will appear here.</div>`;
 }
 
 const AUTOMATION_TYPES = {
   data_sync: {
-    label: "Scheduled data sync", icon: "↻",
+    label: "Scheduled data sync", icon: "refresh",
     description: "Refresh connected marketing and CRM sources automatically.",
     actions: [["refresh", "Refresh all connected sources"], ["topup", "Refresh recent conversions only"]],
   },
   reports: {
-    label: "Automatic reports", icon: "▤",
+    label: "Automatic reports", icon: "report",
     description: "Generate and deliver scheduled CSV or Excel performance reports.",
     actions: [["email_csv", "Email a CSV report"], ["email_excel", "Email an Excel report"], ["save_local", "Prepare a local download"]], email: true, planned: true,
   },
   performance_alerts: {
-    label: "Performance alerts", icon: "!",
+    label: "Performance alerts", icon: "alert",
     description: "Alert when CPL, CAC, CPC, spend, or conversions cross a limit.",
     actions: [["notify", "Show a portal notification"], ["email", "Send an email alert"]], threshold: true, email: true, planned: true,
   },
   budget_monitoring: {
-    label: "Budget monitoring", icon: "₹",
+    label: "Budget monitoring", icon: "budget",
     description: "Track pacing, forecast month-end spend, and flag budget risk.",
     actions: [["pacing", "Check planned versus actual spend"], ["forecast", "Forecast month-end spend"], ["email", "Email a budget warning"]], threshold: true, email: true, planned: true,
   },
   recommendations: {
-    label: "Campaign recommendations", icon: "✦",
+    label: "Campaign recommendations", icon: "recommendation",
     description: "Find campaigns to scale, investigate, pause, or improve.",
     actions: [["efficiency", "Review efficiency opportunities"], ["scale", "Find campaigns ready to scale"], ["waste", "Find spend without outcomes"]], planned: true,
   },
   crm_followup: {
-    label: "CRM follow-up automation", icon: "◎",
+    label: "CRM follow-up automation", icon: "crm",
     description: "Find untouched leads and leads stuck in a funnel stage.",
     actions: [["uncontacted", "Find leads not contacted"], ["stalled", "Find leads stuck in a stage"], ["summary", "Send a funnel summary"]], crm: true, planned: true,
   },
   data_quality: {
-    label: "Data-quality checks", icon: "✓",
+    label: "Data-quality checks", icon: "quality",
     description: "Detect missing fields, duplicates, connector gaps, and total mismatches.",
     actions: [["missing", "Check missing campaign and source fields"], ["duplicates", "Check duplicate CRM leads"], ["connectors", "Check delayed or failed connectors"], ["totals", "Compare portal and platform totals"]], planned: true,
   },
   offline_conversions: {
-    label: "Offline conversion preparation", icon: "⇧",
+    label: "Offline conversion preparation", icon: "upload",
     description: "Prepare validated qualified-lead and sale files for ad platforms.",
     actions: [["google", "Prepare Google Ads conversion file"], ["meta", "Prepare Meta conversion file"], ["both", "Prepare both platform files"]], planned: true,
   },
   snapshots: {
-    label: "Snapshots and backups", icon: "◫",
+    label: "Snapshots and backups", icon: "archive",
     description: "Save historical campaign snapshots and reporting backups.",
     actions: [["campaigns", "Save campaign performance snapshot"], ["full", "Back up the complete report"], ["sheet", "Prepare a Google Sheets export"]], retention: true, planned: true,
   },
   custom_rules: {
-    label: "Custom automation rules", icon: "⌘",
+    label: "Custom automation rules", icon: "rules",
     description: "Choose a metric, condition, threshold, schedule, and action.",
     actions: [["notify", "Show a portal notification"], ["email", "Send an email"], ["flag", "Flag matching campaigns"]], threshold: true, planned: true,
   },
@@ -3405,7 +3480,7 @@ function renderAutomationTypeSummary() {
   const typeId = $("#automationType")?.value;
   const type = AUTOMATION_TYPES[typeId] || AUTOMATION_TYPES.data_sync;
   const schedulerPaused = typeId === "data_sync" && state.meta && !state.meta.scheduler_enabled;
-  $("#automationChoiceIcon").textContent = type.icon;
+  $("#automationChoiceIcon").innerHTML = ICONS[type.icon] || ICONS.rules;
   $("#automationChoiceTitle").textContent = type.label;
   const availability = type.planned ? " Planned feature. Execution service required."
     : schedulerPaused ? " Background schedule paused. Manual sync is available below."
@@ -3423,9 +3498,9 @@ function renderAutomationRules() {
     ${rules.map((rule) => {
       const type = AUTOMATION_TYPES[rule.type] || AUTOMATION_TYPES.custom_rules;
       return `<div class="automation-rule">
-        <span class="automation-rule-icon" aria-hidden="true">${type.icon}</span>
+        <span class="automation-rule-icon" aria-hidden="true">${ICONS[type.icon] || ICONS.rules}</span>
         <span><b>${esc(rule.name)}</b><small>${esc(rule.scheduleLabel)} · ${esc(rule.actionLabel)}</small></span>
-        <button type="button" data-delete-automation="${esc(rule.id)}" aria-label="Delete ${esc(rule.name)}">×</button>
+        <button type="button" data-delete-automation="${esc(rule.id)}" aria-label="Delete ${esc(rule.name)}">${ICONS.close}</button>
       </div>`;
     }).join("")}` : "";
 }
@@ -3459,7 +3534,7 @@ function openAutomationBuilder() {
   }
   modal(type.label, `
     <div class="automation-form automation-builder-form">
-      <div class="automation-modal-intro"><span aria-hidden="true">${type.icon}</span><p>${esc(type.description)}</p></div>
+      <div class="automation-modal-intro"><span aria-hidden="true">${ICONS[type.icon] || ICONS.rules}</span><p>${esc(type.description)}</p></div>
       <label>Automation name<input id="automationName" maxlength="60" value="${esc(type.label)}"></label>
       <label>What should it do?<select id="automationAction">${type.actions.map(([value, label]) => `<option value="${value}">${esc(label)}</option>`).join("")}</select></label>
       ${type.email ? `<label>Delivery email <span class="optional-word">optional</span><input id="automationEmail" type="email" placeholder="team@company.com" autocomplete="email"></label>` : ""}
@@ -3496,11 +3571,16 @@ function openAutomationBuilder() {
 
 async function loadHub() {
   renderSavedViews(); renderCustomMetrics(); renderConnectorDirectory(); renderAutomationRules();
-  const [overview, automation, mcpInfo, quality] = await Promise.all([
+  // Keep the interactive Data Quality request out of the initial burst. The
+  // portal has a deliberately small PostgreSQL pool, and this page otherwise
+  // competes with the global campaign refresh for all available leases.
+  const [overview, automation, mcpInfo] = await Promise.all([
     api(`/api/overview?${qs()}`), api("/api/automation"),
     currentUser?.role === "viewer" ? Promise.resolve({ http_enabled: false, tools: [] }) : api("/api/mcp"),
-    api(`/api/data-quality?${qs()}`),
   ]);
+  const qualityResult = await api(`/api/data-quality?${qs()}`)
+    .then((checks) => ({ checks }))
+    .catch((error) => ({ error }));
   state.overview = overview;
   renderPerformanceInsights(overview);
   const meta = state.meta || await api("/api/meta");
@@ -3520,7 +3600,13 @@ async function loadHub() {
   $("#mcpStatus").classList.toggle("online", true);
   $("#mcpToolCount").textContent = `${mcpInfo.tools.length} read-only tools`;
   const qualityList = $("#qualityList");
-  qualityList.innerHTML = quality.checks.map((check) => `<div class="quality-item ${check.status}"><span aria-hidden="true">${check.status === "pass" ? "✓" : check.status === "warn" ? "!" : "×"}</span><div><b>${esc(check.title)}</b><small>${esc(check.detail)}</small>${check.status === "pass" ? "" : `<small class="quality-next"><strong>Next:</strong> ${esc(check.next_step || "Review the source data before using this metric.")}</small>${check.action_route ? `<button type="button" class="quality-action" data-quality-route="${esc(check.action_route)}">${esc(check.action_label || "Review")}</button>` : ""}`}</div></div>`).join("");
+  if (qualityResult.error) {
+    qualityList.innerHTML = `<div class="empty compact">Data Quality could not load. ${esc(qualityResult.error.message)} <button type="button" class="quality-action" id="retryDataQuality">Retry</button></div>`;
+    $("#retryDataQuality").addEventListener("click", () => refresh());
+    return;
+  }
+  const quality = qualityResult.checks;
+  qualityList.innerHTML = quality.checks.map((check) => `<div class="quality-item ${check.status}"><span aria-hidden="true">${check.status === "pass" ? ICONS.success : check.status === "warn" ? ICONS.warning : ICONS.error}</span><div><b>${esc(check.title)}</b><small>${esc(check.detail)}</small>${check.status === "pass" ? "" : `<small class="quality-next"><strong>Next:</strong> ${esc(check.next_step || "Review the source data before using this metric.")}</small>${check.action_route ? `<button type="button" class="quality-action" data-quality-route="${esc(check.action_route)}">${esc(check.action_label || "Review")}</button>` : ""}`}</div></div>`).join("");
   qualityList.querySelectorAll("[data-quality-route]").forEach((button) => {
     button.addEventListener("click", () => switchTab(button.dataset.qualityRoute));
   });
@@ -4006,17 +4092,14 @@ async function boot() {
     });
   });
 
-  const authInfo = await api("/api/auth/me");
-  csrfToken = authInfo.csrf_token;
-  applyRoleUI(authInfo.user);
+  const bootstrap = await api("/api/bootstrap");
+  csrfToken = bootstrap.csrf_token;
+  applyRoleUI(bootstrap.user);
   setupAssistant();
-  const [meta, connections, automationRules, profile] = await Promise.all([
-    api("/api/meta"), api("/api/connections"),
-    currentUser.role !== "admin" ? Promise.resolve({ rules: [] }) : api("/api/automation/rules"),
-    api("/api/auth/profile"),
-  ]);
+  const { meta, connections, automation_rules: automationRules, profile } = bootstrap;
+  initialOverviewBundle = bootstrap.overview_bundle;
   renderProfileSettings(profile);
-  try { await hydrateUiPreferences(authInfo.user); }
+  try { await hydrateUiPreferences(bootstrap.user, bootstrap.ui_preferences); }
   catch (error) { toast(`Account layout could not load: ${error.message}`, "error"); }
   localStorage.setItem("portalAutomationRules", JSON.stringify(automationRules.rules || []));
   state.meta = meta;
@@ -4633,6 +4716,32 @@ async function boot() {
       const result = await api("/api/auth/sessions/revoke-others", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
       setSettingsMessage("sessionsState", `${result.revoked} other session${result.revoked === 1 ? "" : "s"} signed out.`);
     } catch (err) { setSettingsMessage("sessionsState", err.message, true); }
+    finally { setButtonBusy(button, false); }
+  });
+  let mfaEnrollmentChallenge = "";
+  $("#mfaEnrollForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = $("#mfaEnrollForm button[type='submit']"); setButtonBusy(button, true);
+    try {
+      const result = await api("/api/auth/mfa/enroll", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ current_password: $("#mfaCurrentPassword").value }) });
+      mfaEnrollmentChallenge = result.challenge;
+      $("#mfaSecret").value = result.secret;
+      $("#mfaVerifyForm").hidden = false;
+      setSettingsMessage("mfaState", "Add the setup key to your authenticator, then verify a code.");
+      $("#mfaVerifyCode").focus();
+    } catch (err) { setSettingsMessage("mfaState", err.message, true); }
+    finally { setButtonBusy(button, false); }
+  });
+  $("#mfaVerifyForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = $("#mfaVerifyForm button[type='submit']"); setButtonBusy(button, true);
+    try {
+      const result = await api("/api/auth/mfa/enable", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ challenge: mfaEnrollmentChallenge, code: $("#mfaVerifyCode").value }) });
+      csrfToken = result.csrf_token;
+      $("#mfaRecoveryCodes").textContent = result.recovery_codes.join("\n");
+      $("#mfaRecovery").hidden = false; $("#mfaVerifyForm").hidden = true; $("#mfaEnrollForm").reset();
+      setSettingsMessage("mfaState", "MFA enabled. Save the recovery codes before leaving this page.");
+    } catch (err) { setSettingsMessage("mfaState", err.message, true); }
     finally { setButtonBusy(button, false); }
   });
   $("#saveNotificationSettings").addEventListener("click", async () => {

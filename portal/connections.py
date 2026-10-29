@@ -18,6 +18,14 @@ from .providers.base import Connection
 from . import secret_store
 
 GOOGLE_PROVIDERS = ("google_ads", "ga4", "gsc", "google_sheets")
+_DUPLICATE_NAME_MESSAGE = (
+    "A connection with this name already exists. Edit the existing connection or choose another name."
+)
+
+
+def _is_unique_violation(exc: Exception) -> bool:
+    """Recognize duplicate-key errors without tying callers to one driver."""
+    return isinstance(exc, sqlite3.IntegrityError) or getattr(exc, "sqlstate", None) == "23505"
 
 
 def _reuse_google_oauth(provider: str, config: dict, secrets: dict) -> tuple[dict, dict]:
@@ -83,7 +91,7 @@ def create(provider: str, name: str, config: dict, secrets: dict | None = None) 
     if not name:
         raise ValueError("Connection name is required")
     if query("SELECT id FROM connections WHERE provider=? AND lower(name)=lower(?)", (provider, name)):
-        raise ValueError("A connection with this name already exists. Edit the existing connection or choose another name.")
+        raise ValueError(_DUPLICATE_NAME_MESSAGE)
     stored_secrets, new_ref = secret_store.stage(secrets)
     try:
         with _write_lock:
@@ -100,10 +108,10 @@ def create(provider: str, name: str, config: dict, secrets: dict | None = None) 
     except Exception as exc:
         if new_ref:
             secret_store.delete(new_ref)
-        if isinstance(exc, sqlite3.IntegrityError) and query(
+        if _is_unique_violation(exc) and query(
             "SELECT id FROM connections WHERE provider=? AND lower(name)=lower(?)", (provider, name)
         ):
-            raise ValueError("A connection with this name already exists.") from exc
+            raise ValueError(_DUPLICATE_NAME_MESSAGE) from None
         raise
     _secure_db_file()
     return Connection(cur.lastrowid, provider, name, config, secrets)
@@ -120,7 +128,7 @@ def update(connection_id: int, *, name: str | None = None, config: dict | None =
             raise ValueError("Connection name is required")
         if query("SELECT id FROM connections WHERE provider=? AND lower(name)=lower(?) AND id<>?",
                  (existing.provider, name, connection_id)):
-            raise ValueError("A connection with this name already exists.")
+            raise ValueError(_DUPLICATE_NAME_MESSAGE)
     # Merge rather than replace, so a form that omits an unchanged secret does
     # not silently wipe it.
     incoming_config, incoming_secrets = secret_store.promote_config(config or {}, secrets or {})
@@ -149,9 +157,15 @@ def update(connection_id: int, *, name: str | None = None, config: dict | None =
             except Exception:
                 conn.rollback()
                 raise
-    except Exception:
+    except Exception as exc:
         if new_ref:
             secret_store.delete(new_ref)
+        final_name = name if name is not None else existing.name
+        if _is_unique_violation(exc) and query(
+            "SELECT id FROM connections WHERE provider=? AND lower(name)=lower(?) AND id<>?",
+            (existing.provider, final_name, connection_id),
+        ):
+            raise ValueError(_DUPLICATE_NAME_MESSAGE) from None
         raise
     # The cached token is keyed by connection ID, so a saved credential change
     # must take effect before another request can reuse the old token.

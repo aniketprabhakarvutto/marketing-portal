@@ -9,10 +9,17 @@ from __future__ import annotations
 
 import argparse
 import sqlite3
+import sys
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 import psycopg
+
+# Support both ``python3 scripts/backfill_postgres.py`` and module execution
+# from a repository checkout.  The migration must not depend on a globally
+# installed ``portal`` package.
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from portal.config import APP
 from portal.models import TABLE_MODELS

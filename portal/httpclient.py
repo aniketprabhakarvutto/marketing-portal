@@ -17,6 +17,10 @@ import urllib.parse
 import urllib.request
 
 DEFAULT_TIMEOUT = 180
+# Google Sheets and Drive calls are interactive portal requests.  They must
+# fail promptly rather than holding a web worker while an upstream API stalls.
+# Callers opt in so existing connector behaviour is unchanged.
+GOOGLE_API_TIMEOUT = 20
 _ctx = ssl.create_default_context()
 
 

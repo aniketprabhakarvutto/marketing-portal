@@ -7,8 +7,11 @@ spreadsheet, or anything else you point at http://localhost:8787/api/.
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
+import copy
 import json
 import re
+import threading
+import time
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -20,6 +23,13 @@ from .providers.shape import channel_from_label, normalise_channel
 from . import platform
 
 PAID_SOURCES = ("google_ads", "meta_ads", "linkedin_ads", "tiktok_ads")
+REPORT_CACHE_TTL_SECONDS = 300
+CAMPAIGN_CACHE_TTL_SECONDS = 300
+_report_cache: dict[tuple[Any, ...], tuple[float, Any]] = {}
+_report_cache_inflight: dict[tuple[Any, ...], threading.Event] = {}
+_report_cache_lock = threading.Lock()
+_campaign_cache: dict[tuple[Any, ...], tuple[float, list[dict[str, Any]]]] = {}
+_campaign_cache_lock = threading.Lock()
 
 # When direct Superleap rows exist for a day they replace the older CSV/Sheet
 # aggregates for that day. Dates without API rows keep the legacy backfill.
@@ -100,6 +110,40 @@ def _lead_side(value: str | None) -> str:
     if side in {"sell", "supply"}:
         return "sell"
     return side
+
+
+def _cached_report(name: str, args: tuple[Any, ...], loader) -> Any:
+    """Cache read-only report responses and collapse concurrent cold requests."""
+    key = (APP.database_url, APP.db_path, name, *args)
+    while True:
+        now = time.monotonic()
+        with _report_cache_lock:
+            cached = _report_cache.get(key)
+            if cached and now - cached[0] < REPORT_CACHE_TTL_SECONDS:
+                return copy.deepcopy(cached[1])
+            event = _report_cache_inflight.get(key)
+            if event is None:
+                event = threading.Event()
+                _report_cache_inflight[key] = event
+                owner = True
+            else:
+                owner = False
+        if owner:
+            try:
+                value = loader()
+                with _report_cache_lock:
+                    _report_cache[key] = (time.monotonic(), copy.deepcopy(value))
+                return value
+            finally:
+                with _report_cache_lock:
+                    _report_cache_inflight.pop(key, None)
+                    event.set()
+        event.wait()
+
+
+def invalidate_report_cache() -> None:
+    with _report_cache_lock:
+        _report_cache.clear()
 
 
 def _crm_campaign_won_measured(provider: str | None, config: str | dict | None) -> bool:
@@ -261,7 +305,7 @@ def _snapshot(s: str, e: str) -> tuple[dict[str, float | None], dict[str, bool],
 
 
 # ---------------------------------------------------------------------- routes
-def meta() -> dict[str, Any]:
+def _meta_uncached() -> dict[str, Any]:
     bounds = query(
         "SELECT MIN(d) lo, MAX(d) hi FROM ("
         "  SELECT date d FROM paid_metrics WHERE date <= ? UNION ALL"
@@ -375,6 +419,10 @@ def meta() -> dict[str, Any]:
     }
 
 
+def meta() -> dict[str, Any]:
+    return _cached_report("meta", (), _meta_uncached)
+
+
 def providers() -> list[dict[str, Any]]:
     """Everything the portal can connect to, as the setup form consumes it."""
     from .providers import catalogue
@@ -382,30 +430,57 @@ def providers() -> list[dict[str, Any]]:
     return catalogue()
 
 
-def connections() -> list[dict[str, Any]]:
+def _connections_uncached() -> list[dict[str, Any]]:
     """Saved accounts, with how each one's last sync went."""
+    from .db import PROVENANCE_TABLES
+
+    # Keep this endpoint to three database round trips. The old implementation
+    # ran two sync-history queries plus one COUNT per fact table for every
+    # connector. With 17 connectors and a remote PostgreSQL database that was
+    # more than 170 sequential queries and made portal boot take over a minute.
+    counts_sql = " UNION ALL ".join(
+        f"SELECT connection_id, COUNT(*) AS row_count FROM {table} GROUP BY connection_id"
+        for table in PROVENANCE_TABLES
+    )
+    held = {
+        int(row["connection_id"]): int(row["rows_held"] or 0)
+        for row in query(
+            "SELECT connection_id, SUM(row_count) AS rows_held FROM ("
+            + counts_sql
+            + ") grouped_counts GROUP BY connection_id"
+        )
+    }
+    sync = {
+        int(row["connection_id"]): row
+        for row in query(
+            "WITH ranked AS ("
+            " SELECT connection_id, status, message, started_at,"
+            " MAX(CASE WHEN status = 'ok' THEN started_at END)"
+            "   OVER (PARTITION BY connection_id) AS last_success_at,"
+            " ROW_NUMBER() OVER (PARTITION BY connection_id ORDER BY id DESC) AS row_num"
+            " FROM sync_runs"
+            ") SELECT connection_id, status, message, started_at, last_success_at"
+            " FROM ranked WHERE row_num = 1"
+        )
+    }
     out = []
     for conn in conns.all_connections():
         provider = REGISTRY.get(conn.provider)
         card = conns.public(conn, provider)
-        last = query(
-            "SELECT * FROM sync_runs WHERE connection_id = ? ORDER BY id DESC LIMIT 1",
-            (conn.id,),
-        )
-        ok = query(
-            "SELECT started_at FROM sync_runs WHERE connection_id = ? AND status = 'ok' "
-            "ORDER BY id DESC LIMIT 1", (conn.id,),
-        )
-        row = last[0] if last else None
+        row = sync.get(conn.id)
         card.update({
             "last_status": row["status"] if row else "never",
             "last_message": row["message"] if row else "",
             "last_run_at": row["started_at"] if row else None,
-            "last_success_at": ok[0]["started_at"] if ok else None,
-            "rows_held": _rows_held(conn.id),
+            "last_success_at": row["last_success_at"] if row else None,
+            "rows_held": held.get(conn.id, 0),
         })
         out.append(card)
     return out
+
+
+def connections() -> list[dict[str, Any]]:
+    return _cached_report("connections", (), _connections_uncached)
 
 
 def data_quality(start: str | None, end: str | None) -> dict[str, Any]:
@@ -554,7 +629,7 @@ def data_quality(start: str | None, end: str | None) -> dict[str, Any]:
         "SUM(d.leads) leads, SUM(d.won) won, c.provider, c.config "
         "FROM crm_campaign_daily d LEFT JOIN connections c ON c.id=d.connection_id "
         "WHERE d.date BETWEEN ? AND ? AND (c.id IS NULL OR c.enabled=1) "
-        "GROUP BY d.date, d.channel, d.campaign_name, d.lead_type, d.connection_id", (s, e))
+        "GROUP BY d.date, d.channel, d.campaign_name, d.lead_type, d.connection_id, c.provider, c.config", (s, e))
     overlap: dict[tuple[str, str, str, str], dict[int, dict[str, Any]]] = {}
     for row in campaign_rows:
         key = (row["date"], row["channel"], _campaign_key(row["campaign_name"]),
@@ -635,7 +710,7 @@ def source_view(connection_id: int, start: str | None, end: str | None,
     Connector pages are generated from the table a provider writes to, so a
     newly installed provider gets a useful portal page without front-end work.
     """
-    from .db import PROVENANCE_TABLES
+    from .db import PROVENANCE_TABLES, table_columns
 
     conn = conns.get(connection_id)
     if not conn:
@@ -648,7 +723,7 @@ def source_view(connection_id: int, start: str | None, end: str | None,
         raise ValueError(f"The provider table '{table}' cannot be displayed.")
 
     s, e = date_range(start, end)
-    column_rows = query(f"PRAGMA table_info({table})")
+    column_rows = table_columns(table)
     columns = [dict(row) for row in column_rows
                if row["name"] not in {"id", "connection_id"}]
     column_names = {row["name"] for row in column_rows}
@@ -807,7 +882,7 @@ def budget_pacing(start: str | None, end: str | None,
     }
 
 
-def overview(start: str | None, end: str | None) -> dict[str, Any]:
+def _overview_uncached(start: str | None, end: str | None) -> dict[str, Any]:
     s, e = date_range(start, end)
     ps, pe = _previous(s, e)
     (cur, availability, coverage), (prev, previous_availability, previous_coverage) = _snapshot(s, e), _snapshot(ps, pe)
@@ -846,7 +921,11 @@ def overview(start: str | None, end: str | None) -> dict[str, Any]:
     }
 
 
-def timeseries(start: str | None, end: str | None) -> dict[str, Any]:
+def overview(start: str | None, end: str | None) -> dict[str, Any]:
+    return _cached_report("overview", (start, end), lambda: _overview_uncached(start, end))
+
+
+def _timeseries_uncached(start: str | None, end: str | None) -> dict[str, Any]:
     s, e = date_range(start, end)
     days = []
     d, last = date.fromisoformat(s), date.fromisoformat(e)
@@ -900,7 +979,11 @@ def timeseries(start: str | None, end: str | None) -> dict[str, Any]:
     return {"days": days, "series": series}
 
 
-def channels(start: str | None, end: str | None) -> list[dict[str, Any]]:
+def timeseries(start: str | None, end: str | None) -> dict[str, Any]:
+    return _cached_report("timeseries", (start, end), lambda: _timeseries_uncached(start, end))
+
+
+def _channels_uncached(start: str | None, end: str | None) -> list[dict[str, Any]]:
     """The blended table — ad spend joined to CRM outcomes on a channel key.
 
     This is the number the hosted tools charge for: real cost per lead and cost
@@ -908,6 +991,7 @@ def channels(start: str | None, end: str | None) -> list[dict[str, Any]]:
     """
     s, e = date_range(start, end)
     rows: dict[str, dict[str, Any]] = {}
+    transform = platform.transformer()
     crm_available = bool(scalar(
         "SELECT COUNT(*) FROM " + CRM_DAILY_FROM + " WHERE date BETWEEN ? AND ?", (s, e)))
     revenue_available = bool(scalar(
@@ -931,7 +1015,7 @@ def channels(start: str | None, end: str | None) -> list[dict[str, Any]]:
         "FROM paid_metrics WHERE date BETWEEN ? AND ? GROUP BY source",
         (s, e),
     ):
-        t = row(platform.transform("channel", r["source"]))
+        t = row(transform("channel", r["source"]))
         t["is_paid"] = True
         compatible = (
             int(r["currencies"] or 0) == 1
@@ -950,7 +1034,7 @@ def channels(start: str | None, end: str | None) -> list[dict[str, Any]]:
         "FROM " + CRM_DAILY_FROM + " WHERE date BETWEEN ? AND ? GROUP BY channel", (s, e)
     ):
         key = channel_from_label(r["channel"], {"others": "other", "superleap": "other"})
-        key = platform.transform("channel", key)
+        key = transform("channel", key)
         t = row(key)
         t["leads"] += int(r["leads"])
         t["qualified"] += int(r["qualified"])
@@ -962,7 +1046,7 @@ def channels(start: str | None, end: str | None) -> list[dict[str, Any]]:
         "FROM web_metrics WHERE date BETWEEN ? AND ? GROUP BY session_source, session_medium",
         (s, e),
     ):
-        t = row(platform.transform("channel", normalise_channel(r["src"], r["med"])))
+        t = row(transform("channel", normalise_channel(r["src"], r["med"])))
         t["sessions"] += int(r["sessions"] or 0)
 
     out = []
@@ -979,8 +1063,12 @@ def channels(start: str | None, end: str | None) -> list[dict[str, Any]]:
     return sorted(out, key=lambda x: (-(x["spend"] or 0), -(x["leads"] or 0)))
 
 
-def campaigns(start: str | None, end: str | None, source: str | None = None,
-              limit: int | None = 200, offset: int = 0) -> list[dict[str, Any]]:
+def channels(start: str | None, end: str | None) -> list[dict[str, Any]]:
+    return _cached_report("channels", (start, end), lambda: _channels_uncached(start, end))
+
+
+def _campaigns_uncached(start: str | None, end: str | None, source: str | None = None,
+                        limit: int | None = 200, offset: int = 0) -> list[dict[str, Any]]:
     s, e = date_range(start, end)
     if offset < 0:
         raise ValueError("Campaign offset cannot be negative")
@@ -1057,11 +1145,20 @@ def campaigns(start: str | None, end: str | None, source: str | None = None,
 
     crm_revenue_by_name: dict[tuple[str, str, str], float] = {}
     crm_revenue_by_id: dict[tuple[str, str, str], float] = {}
-    for r in query(
-        "SELECT channel, LOWER(TRIM(utm_campaign)) campaign, lead_type, COALESCE(SUM(revenue),0) revenue "
-        "FROM " + CRM_LEADS_FROM + " WHERE created_date BETWEEN ? AND ? AND TRIM(utm_campaign) != '' "
-        "GROUP BY channel, LOWER(TRIM(utm_campaign)), lead_type", (s, e),
-    ):
+    # Modern syncs maintain this compact rollup. Keep the raw-lead fallback so
+    # existing databases remain correct until their next CRM sync/backfill.
+    revenue_rows = query(
+        "SELECT channel, LOWER(TRIM(campaign_name)) campaign, lead_type, COALESCE(SUM(revenue),0) revenue "
+        "FROM crm_campaign_revenue_daily WHERE date BETWEEN ? AND ? AND TRIM(campaign_name) != '' "
+        "GROUP BY channel, LOWER(TRIM(campaign_name)), lead_type", (s, e),
+    )
+    if not revenue_rows:
+        revenue_rows = query(
+            "SELECT channel, LOWER(TRIM(utm_campaign)) campaign, lead_type, COALESCE(SUM(revenue),0) revenue "
+            "FROM " + CRM_LEADS_FROM + " WHERE created_date BETWEEN ? AND ? AND TRIM(utm_campaign) != '' "
+            "GROUP BY channel, LOWER(TRIM(utm_campaign)), lead_type", (s, e),
+        )
+    for r in revenue_rows:
         lead_side = _lead_side(r["lead_type"])
         campaign_value = str(r["campaign"] or "")
         revenue = float(r["revenue"] or 0)
@@ -1131,6 +1228,30 @@ def campaigns(start: str | None, end: str | None, source: str | None = None,
             "crm_revenue_currency": APP.currency.upper() if crm_revenue is not None else None,
         })
     return out
+
+
+def invalidate_campaign_cache() -> None:
+    with _campaign_cache_lock:
+        _campaign_cache.clear()
+
+
+def campaigns(start: str | None, end: str | None, source: str | None = None,
+              limit: int | None = 200, offset: int = 0) -> list[dict[str, Any]]:
+    """Return campaign reporting with a short server-side read-through cache.
+
+    Syncs invalidate the cache, so browser reloads reuse an identical report
+    without serving stale data after paid or CRM source changes.
+    """
+    key = (APP.database_url, APP.db_path, start, end, source, limit, offset)
+    now = time.monotonic()
+    with _campaign_cache_lock:
+        cached = _campaign_cache.get(key)
+        if cached and now - cached[0] < CAMPAIGN_CACHE_TTL_SECONDS:
+            return copy.deepcopy(cached[1])
+    result = _campaigns_uncached(start, end, source, limit, offset)
+    with _campaign_cache_lock:
+        _campaign_cache[key] = (time.monotonic(), copy.deepcopy(result))
+    return result
 
 
 def search(start: str | None, end: str | None, dim: str = "query",
@@ -1242,7 +1363,7 @@ def crm(start: str | None, end: str | None) -> dict[str, Any]:
 
     lead_types = [r["lead_type"] for r in query(
         "SELECT lead_type, SUM(leads) n FROM " + CRM_DAILY_FROM + " WHERE date BETWEEN ? AND ? "
-        "GROUP BY lead_type HAVING n > 0 ORDER BY n DESC", (s, e))]
+        "GROUP BY lead_type HAVING SUM(leads) > 0 ORDER BY n DESC", (s, e))]
     if not lead_types:
         lead_types = [""]
 

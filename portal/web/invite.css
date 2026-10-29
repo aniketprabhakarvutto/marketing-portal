@@ -59,6 +59,7 @@ button:disabled { cursor: wait; opacity: .6; }
 .created-head { display: flex; align-items: center; gap: 11px; margin-bottom: 14px; }
 .created-head p { margin: 0; color: var(--muted); font-size: 12px; }
 .success-mark { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 50%; background: #d9f4e6; color: #087443; font-weight: 900; }
+.success-mark svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .link-actions { display: flex; align-items: center; gap: 12px; margin-top: 9px; }
 .link-actions span { color: var(--muted); font-size: 12px; }
 .notice { margin: 15px 0 0; padding: 12px 13px; border: 1px solid #d6eaff; border-radius: 10px; background: #f4faff; color: #47627e; font-size: 12px; }

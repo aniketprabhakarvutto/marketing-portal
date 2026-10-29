@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from portal import db
+from portal import api, connections, db, platform
+from portal.config import APP
 from portal.migrations import MIGRATIONS
 from portal.models import TABLE_MODELS, postgres_schema
 
@@ -24,6 +26,13 @@ class PostgresMigrationTests(unittest.TestCase):
     def test_crm_provenance_forward_migration_is_registered(self) -> None:
         self.assertIn("0002_crm_origins", MIGRATIONS)
 
+    def test_mfa_forward_migration_is_registered_and_portable(self) -> None:
+        self.assertIn("0005_account_mfa", MIGRATIONS)
+        source = (Path(__file__).resolve().parents[1] / "portal" / "migrations" / "0005_account_mfa.py").read_text()
+        self.assertIn("ADD COLUMN IF NOT EXISTS mfa_secret_encrypted", source)
+        self.assertIn("ADD COLUMN IF NOT EXISTS mfa_recovery_hashes", source)
+        self.assertIn("ADD COLUMN IF NOT EXISTS mfa_enabled", source)
+
     def test_migration_history_is_qualified_to_public_schema(self) -> None:
         migration_source = (Path(__file__).resolve().parents[1] / "portal" / "migrations" / "__init__.py").read_text()
         self.assertIn("public.schema_migrations", migration_source)
@@ -37,6 +46,51 @@ class PostgresMigrationTests(unittest.TestCase):
         translated = db._postgres_sql("SELECT datetime('now', ?), datetime('now','-30 days')")
         self.assertIn("%s)::interval", translated)
         self.assertIn("INTERVAL '-30 days'", translated)
+
+    def test_governance_seed_uses_portable_conflict_handling(self) -> None:
+        statements = []
+        with patch.object(platform, "execute", side_effect=lambda sql, params: statements.append(sql)):
+            platform.seed_governance()
+        self.assertEqual(len(statements), 6)
+        self.assertTrue(all("ON CONFLICT(key) DO NOTHING" in sql for sql in statements))
+        self.assertTrue(all("INSERT OR IGNORE" not in sql for sql in statements))
+
+    def test_postgres_schema_introspection_uses_information_schema(self) -> None:
+        rows = [{"name": "id", "type": "integer", "notnull": 1,
+                 "dflt_value": None, "cid": 0},
+                {"name": "date", "type": "text", "notnull": 1,
+                 "dflt_value": None, "cid": 1}]
+        old_url = APP.database_url
+        APP.database_url = "postgresql://test.invalid/portal"
+        try:
+            with patch.object(db, "query", return_value=rows) as mocked:
+                columns = db.table_columns("paid_metrics")
+        finally:
+            APP.database_url = old_url
+        self.assertEqual([column["name"] for column in columns], ["id", "date"])
+        self.assertEqual(columns[0]["pk"], 1)
+        self.assertIn("information_schema.columns", mocked.call_args.args[0])
+        self.assertNotIn("PRAGMA", mocked.call_args.args[0])
+
+    def test_postgres_strict_grouping_and_having_are_used(self) -> None:
+        source = Path(api.__file__).read_text(encoding="utf-8")
+        self.assertIn("GROUP BY lead_type HAVING SUM(leads) > 0", source)
+        self.assertIn(
+            "d.connection_id, c.provider, c.config\", (s, e))",
+            source,
+        )
+
+    def test_explorer_has_no_sqlite_runtime_function_dependency(self) -> None:
+        source = Path(platform.__file__).read_text(encoding="utf-8")
+        self.assertNotIn("create_function(\"portal_transform\"", source)
+        self.assertNotIn("portal_transform(", source)
+
+    def test_postgres_unique_violation_is_normalized(self) -> None:
+        class UniqueViolation(Exception):
+            sqlstate = "23505"
+
+        self.assertTrue(connections._is_unique_violation(UniqueViolation("database detail")))
+        self.assertFalse(connections._is_unique_violation(RuntimeError("other failure")))
 
 
 if __name__ == "__main__":

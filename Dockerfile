@@ -4,7 +4,8 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-RUN pip install --no-cache-dir cryptography==46.0.3 \
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir cryptography==46.0.3 -r /app/requirements.txt \
  && useradd --create-home --uid 10001 vortex
 COPY . /app
 RUN mkdir -p /data \

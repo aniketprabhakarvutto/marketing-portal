@@ -26,6 +26,7 @@ TABLE_MODELS = (
     TableModel("crm_daily", ("connection_id", "date", "channel", "source", "lead_type")),
     TableModel("crm_city_daily", ("connection_id", "date", "city", "lead_type")),
     TableModel("crm_campaign_daily", ("connection_id", "date", "channel", "campaign_id", "campaign_name", "lead_type")),
+    TableModel("crm_campaign_revenue_daily", ("connection_id", "date", "channel", "campaign_name", "lead_type")),
     TableModel("connections"),
     TableModel("sync_runs"),
     TableModel("portal_settings"),

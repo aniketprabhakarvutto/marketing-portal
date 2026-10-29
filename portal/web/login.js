@@ -3,6 +3,7 @@ const message = document.querySelector("#message");
 const password = document.querySelector("#password");
 const togglePassword = document.querySelector("#togglePassword");
 let setup = false;
+let mfaChallenge = "";
 const AUTH_TIMEOUT_MS = 15000;
 
 function fetchWithTimeout(url, options = {}) {
@@ -63,7 +64,11 @@ form.addEventListener("submit", async (event) => {
       password: password.value,
     };
     if (setup) body.display_name = document.querySelector("#displayName").value;
-    const response = await fetchWithTimeout(setup ? "/api/auth/setup" : "/api/auth/login", {
+    if (mfaChallenge) {
+      body.challenge = mfaChallenge;
+      body.code = document.querySelector("#mfaCode").value;
+    }
+    const response = await fetchWithTimeout(mfaChallenge ? "/api/auth/mfa/verify" : setup ? "/api/auth/setup" : "/api/auth/login", {
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
@@ -71,6 +76,24 @@ form.addEventListener("submit", async (event) => {
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "Sign-in failed.");
+    if (result.mfa_required) {
+      mfaChallenge = result.challenge;
+      document.querySelector("#email").closest("label").hidden = true;
+      document.querySelector("#passwordLabel").hidden = true;
+      const label = document.createElement("label");
+      label.htmlFor = "mfaCode";
+      label.textContent = "Verification or recovery code";
+      label.insertAdjacentHTML("beforeend", '<input id="mfaCode" inputmode="numeric" autocomplete="one-time-code" maxlength="32" required>');
+      form.insertBefore(label, button);
+      document.querySelector("#title").textContent = "Verify sign-in";
+      document.querySelector("#hint").textContent = "Enter the code from your authenticator app or one unused recovery code.";
+      button.textContent = "Verify";
+      button.disabled = false;
+      form.removeAttribute("aria-busy");
+      document.querySelector("#mfaCode").focus();
+      navigating = true;
+      return;
+    }
     button.textContent = "Opening portal...";
     navigating = true;
     location.replace(`/${location.hash}`);

@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import json
 import os
+import queue
 import re
 import sqlite3
 import threading
@@ -18,6 +19,42 @@ from typing import Any, Iterable, Sequence
 from .config import APP
 from .models import TABLE_MODELS
 from .migrations import migrate as apply_migrations
+
+_POSTGRES_POOL_SIZE = APP.postgres_pool_size
+_POSTGRES_ACQUIRE_TIMEOUT_SECONDS = APP.postgres_acquire_timeout_seconds
+
+
+class DatabaseUnavailable(RuntimeError):
+    """Raised when PostgreSQL cannot provide a usable connection promptly."""
+
+
+class _PostgresPoolSlot:
+    """One bounded PostgreSQL connection lease, checked out or available."""
+
+    def __init__(self, connection=None, database_url: str = ""):
+        self.connection = connection
+        self.database_url = database_url
+
+    def close(self) -> None:
+        if self.connection is not None:
+            try:
+                self.connection.close()
+            except Exception:
+                pass
+        self.connection = None
+        self.database_url = ""
+
+
+def _new_postgres_pool() -> queue.LifoQueue:
+    pool: queue.LifoQueue = queue.LifoQueue(maxsize=_POSTGRES_POOL_SIZE)
+    for _ in range(_POSTGRES_POOL_SIZE):
+        pool.put_nowait(_PostgresPoolSlot())
+    return pool
+
+
+_postgres_pool = _new_postgres_pool()
+_postgres_pool_url = ""
+_postgres_pool_lock = threading.Lock()
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS paid_metrics (
@@ -54,6 +91,7 @@ CREATE TABLE IF NOT EXISTS paid_metrics (
 );
 CREATE INDEX IF NOT EXISTS ix_paid_date   ON paid_metrics (date);
 CREATE INDEX IF NOT EXISTS ix_paid_source ON paid_metrics (date, source);
+CREATE INDEX IF NOT EXISTS ix_paid_campaign_daily ON paid_metrics (date, source, account_id, campaign_id, adset_id);
 
 CREATE TABLE IF NOT EXISTS web_metrics (
     id               INTEGER PRIMARY KEY,
@@ -192,6 +230,24 @@ CREATE TABLE IF NOT EXISTS crm_campaign_daily (
 CREATE INDEX IF NOT EXISTS ix_crm_campaign_date ON crm_campaign_daily (date);
 CREATE INDEX IF NOT EXISTS ix_crm_campaign_match
     ON crm_campaign_daily (date, channel, campaign_id, campaign_name);
+CREATE INDEX IF NOT EXISTS ix_crm_campaign_reporting
+    ON crm_campaign_daily (date, connection_id, channel, campaign_id, campaign_name, lead_type);
+
+-- Revenue is rolled up alongside campaign facts so the Paid page never has
+-- to rescan the full CRM lead table to calculate campaign revenue.
+CREATE TABLE IF NOT EXISTS crm_campaign_revenue_daily (
+    id            INTEGER PRIMARY KEY,
+    date          TEXT    NOT NULL,
+    channel       TEXT    NOT NULL DEFAULT '',
+    campaign_name TEXT    NOT NULL DEFAULT '',
+    lead_type     TEXT    NOT NULL DEFAULT '',
+    revenue       REAL    NOT NULL DEFAULT 0,
+    connection_id INTEGER NOT NULL DEFAULT 0,
+    ingested_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (connection_id, date, channel, campaign_name, lead_type)
+);
+CREATE INDEX IF NOT EXISTS ix_crm_campaign_revenue_match
+    ON crm_campaign_revenue_daily (date, channel, campaign_name, lead_type);
 
 -- A saved account on some platform. Credentials live here rather than in .env
 -- so accounts can be added from the browser, and so one portal can hold many
@@ -235,6 +291,9 @@ CREATE TABLE IF NOT EXISTS portal_users (
     role          TEXT NOT NULL DEFAULT 'viewer' CHECK(role IN ('admin','analyst','viewer')),
     enabled       INTEGER NOT NULL DEFAULT 1,
     password_hash TEXT NOT NULL DEFAULT '',
+    mfa_secret_encrypted TEXT NOT NULL DEFAULT '',
+    mfa_recovery_hashes TEXT NOT NULL DEFAULT '[]',
+    mfa_enabled INTEGER NOT NULL DEFAULT 0,
     preferences_json TEXT NOT NULL DEFAULT '{}',
     created_at    TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
@@ -462,8 +521,10 @@ def _row_compat(row):
 class _PostgresConnection:
     """Adapter that keeps the current SQLite-shaped repository API stable."""
 
-    def __init__(self, connection):
+    def __init__(self, connection, database_url: str = "", pool_slot: _PostgresPoolSlot | None = None):
         self._connection = connection
+        self._database_url = database_url
+        self._pool_slot = pool_slot
 
     @property
     def closed(self) -> bool:
@@ -567,6 +628,12 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE portal_users ADD COLUMN password_hash TEXT NOT NULL DEFAULT ''")
     if "preferences_json" not in user_columns:
         conn.execute("ALTER TABLE portal_users ADD COLUMN preferences_json TEXT NOT NULL DEFAULT '{}'")
+    if "mfa_secret_encrypted" not in user_columns:
+        conn.execute("ALTER TABLE portal_users ADD COLUMN mfa_secret_encrypted TEXT NOT NULL DEFAULT ''")
+    if "mfa_recovery_hashes" not in user_columns:
+        conn.execute("ALTER TABLE portal_users ADD COLUMN mfa_recovery_hashes TEXT NOT NULL DEFAULT '[]'")
+    if "mfa_enabled" not in user_columns:
+        conn.execute("ALTER TABLE portal_users ADD COLUMN mfa_enabled INTEGER NOT NULL DEFAULT 0")
     _migrate_connection_scoped_keys(conn)
     _migrate_backup_job_type(conn)
 
@@ -648,6 +715,40 @@ def _migrate_connection_scoped_keys(conn: sqlite3.Connection) -> None:
             conn.execute(sql)
 
 
+def _discard_idle_postgres_connections(database_url: str) -> None:
+    """Close idle connections when the configured PostgreSQL target changes."""
+    global _postgres_pool_url
+    with _postgres_pool_lock:
+        if _postgres_pool_url == database_url:
+            return
+        slots: list[_PostgresPoolSlot] = []
+        while True:
+            try:
+                slot = _postgres_pool.get_nowait()
+            except queue.Empty:
+                break
+            slot.close()
+            slots.append(slot)
+        for slot in slots:
+            _postgres_pool.put_nowait(slot)
+        _postgres_pool_url = database_url
+
+
+def _reset_postgres_pool_for_testing() -> None:
+    """Replace the bounded pool and close its idle connections for isolated tests."""
+    global _postgres_pool, _postgres_pool_url
+    with _postgres_pool_lock:
+        old_pool = _postgres_pool
+        _postgres_pool = _new_postgres_pool()
+        _postgres_pool_url = APP.database_url
+    while True:
+        try:
+            slot = old_pool.get_nowait()
+        except queue.Empty:
+            break
+        slot.close()
+
+
 def connect():
     """One connection per thread for SQLite development or PostgreSQL production."""
     conn = getattr(_local, "conn", None)
@@ -664,7 +765,34 @@ def connect():
                     "PostgreSQL is configured but the psycopg package is missing. "
                     "Install the project's requirements before starting the portal."
                 ) from exc
-            conn = _PostgresConnection(psycopg.connect(APP.database_url, row_factory=dict_row))
+            database_url = APP.database_url
+            _discard_idle_postgres_connections(database_url)
+            try:
+                slot = _postgres_pool.get(timeout=_POSTGRES_ACQUIRE_TIMEOUT_SECONDS)
+            except queue.Empty as exc:
+                raise DatabaseUnavailable("Database temporarily unavailable. Please retry.") from exc
+            try:
+                raw = slot.connection
+                if (slot.database_url != database_url or raw is None or raw.closed):
+                    slot.close()
+                    # A newly leased slot must be bounded too.  Without this,
+                    # DNS or a network stall during psycopg.connect can hold a
+                    # request thread long after the pool-acquisition deadline.
+                    raw = psycopg.connect(
+                        database_url,
+                        row_factory=dict_row,
+                        connect_timeout=_POSTGRES_ACQUIRE_TIMEOUT_SECONDS,
+                    )
+                    slot.connection = raw
+                    slot.database_url = database_url
+            except Exception as exc:
+                slot.close()
+                try:
+                    _postgres_pool.put_nowait(slot)
+                except queue.Full:
+                    pass
+                raise DatabaseUnavailable("Database temporarily unavailable. Please retry.") from exc
+            conn = _PostgresConnection(raw, database_url, slot)
             _local.conn = conn
             return conn
         conn = sqlite3.connect(APP.db_path, timeout=30)
@@ -684,25 +812,56 @@ def connect():
 
 
 def close_connection() -> None:
-    """Release this thread's connection — called when a request thread ends."""
+    """Release SQLite or return a healthy PostgreSQL connection to the pool."""
     conn = getattr(_local, "conn", None)
     if conn is not None:
-        conn.close()
         _local.conn = None
+        if isinstance(conn, _PostgresConnection):
+            raw = conn._connection
+            slot = conn._pool_slot
+            rollback_succeeded = True
+            try:
+                raw.rollback()
+            except Exception:
+                rollback_succeeded = False
+            with _postgres_pool_lock:
+                reusable = (rollback_succeeded
+                            and conn._database_url == APP.database_url
+                            and _postgres_pool_url == APP.database_url and not raw.closed)
+            if slot is None:
+                raw.close()
+                return
+            if reusable:
+                slot.connection = raw
+                slot.database_url = conn._database_url
+            else:
+                slot.close()
+            try:
+                _postgres_pool.put_nowait(slot)
+            except queue.Full:
+                slot.close()
+            return
+        conn.close()
 
 
 def init_db() -> None:
     try:
-        with _write_lock:
-            conn = connect()
-            if using_postgres():
-                apply_migrations(conn, "postgresql", SCHEMA)
+        try:
+            with _write_lock:
+                conn = connect()
+                if using_postgres():
+                    apply_migrations(conn, "postgresql", SCHEMA)
+                    conn.commit()
+                    return
+                conn.executescript(SCHEMA)
+                _migrate(conn)
                 conn.commit()
-                return
-            conn.executescript(SCHEMA)
-            _migrate(conn)
-            conn.commit()
-            _secure_database_files()
+                _secure_database_files()
+        finally:
+            # Startup runs on the server's main thread. Retaining its thread-
+            # local PostgreSQL connection would permanently consume one pool
+            # lease before the first HTTP request is served.
+            close_connection()
     except sqlite3.OperationalError as exc:
         raise RuntimeError(
             f"Could not open the database at {APP.db_path} ({exc}).\n"
@@ -716,6 +875,25 @@ def init_db() -> None:
 
 def query(sql: str, params: Sequence[Any] = ()) -> list[sqlite3.Row]:
     return connect().execute(sql, params).fetchall()
+
+
+def table_columns(table: str) -> list[dict[str, Any]]:
+    """Return a portable, SQLite-shaped description of a known table."""
+    if table not in ALL_TABLES:
+        raise ValueError(f"Unknown portal table: {table}")
+    if using_postgres():
+        rows = query(
+            "SELECT column_name AS name, "
+            "CASE WHEN data_type IN ('text','character varying','character') THEN 'TEXT' "
+            "ELSE UPPER(data_type) END AS type, "
+            "CASE WHEN is_nullable='NO' THEN 1 ELSE 0 END AS notnull, "
+            "column_default AS dflt_value, ordinal_position-1 AS cid "
+            "FROM information_schema.columns "
+            "WHERE table_schema='public' AND table_name=? ORDER BY ordinal_position",
+            (table,),
+        )
+        return [{**dict(row), "pk": 1 if row["name"] == "id" else 0} for row in rows]
+    return [dict(row) for row in query(f"PRAGMA table_info({table})")]
 
 
 def scalar(sql: str, params: Sequence[Any] = (), default: Any = 0) -> Any:

@@ -13,6 +13,7 @@ from portal.providers.base import Connection
 
 class MarketingAnalyticsTests(unittest.TestCase):
     def setUp(self):
+        analytics._discovery_cache.clear()
         self.accounts = {"google_ads": {"1"}, "meta_ads": {"2"}}
         self.rows = [
             {"source": "google_ads", "account_id": "1", "date": "2026-10-21",
@@ -158,6 +159,46 @@ class MarketingAnalyticsTests(unittest.TestCase):
         self.assertFalse(analytics._viewable(conn))
         conn.config["analytics_view_only"] = True
         self.assertTrue(analytics._viewable(conn))
+
+    @patch("portal.marketing_analytics._drive_files")
+    @patch("portal.marketing_analytics._metadata")
+    @patch("portal.marketing_analytics.conns.all_connections")
+    def test_workbook_listing_uses_saved_records_without_google_requests(self, connections, metadata, drive_files):
+        connections.return_value = [Connection(3, "google_sheets", "Demand October 2026", {
+            "spreadsheet_url": "12345678901234567890", "analytics_role": "demand",
+        }, {}, True)]
+        result = analytics.workbooks()
+        self.assertEqual(result, [{
+            "connection_id": 3, "name": "Demand October 2026", "role": "demand",
+            "month": "2026-10", "spreadsheet_id": "12345678901234567890", "tabs": [],
+            "status": "ready", "message": "",
+        }])
+        metadata.assert_not_called()
+        drive_files.assert_not_called()
+
+    @patch("portal.marketing_analytics._drive_files", return_value=[])
+    @patch("portal.marketing_analytics._metadata")
+    @patch("portal.marketing_analytics.conns.all_connections")
+    def test_explicit_discovery_hydrates_workbook_and_uses_short_cache(self, connections, metadata, _drive_files):
+        connections.return_value = [Connection(3, "google_sheets", "Demand", {
+            "spreadsheet_url": "12345678901234567890", "analytics_role": "demand",
+        }, {}, True)]
+        metadata.return_value = {"properties": {"title": "Marketing Analytics (Demand)-Oct'26"},
+                                 "sheets": [{"properties": {"sheetId": 7, "title": "Control Room"}}]}
+        first = analytics.workbooks(discover=True)
+        second = analytics.workbooks(discover=True)
+        self.assertEqual(first, second)
+        self.assertEqual(first[0]["tabs"], [{"id": 7, "title": "Control Room"}])
+        metadata.assert_called_once()
+        _drive_files.assert_called_once()
+
+    @patch("portal.marketing_analytics._token", return_value="access")
+    @patch("portal.marketing_analytics.get")
+    def test_google_discovery_uses_interactive_timeout(self, get, _token):
+        conn = Connection(3, "google_sheets", "Demand", {"analytics_role": "demand"}, {}, True)
+        get.return_value = {"files": []}
+        analytics._drive_files(conn)
+        self.assertEqual(get.call_args.kwargs["timeout"], analytics.GOOGLE_API_TIMEOUT)
 
     @patch("portal.marketing_analytics.get")
     @patch("portal.marketing_analytics._token", return_value="access")

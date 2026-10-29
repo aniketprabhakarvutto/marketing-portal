@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Vortex Veri</title>
-  <link rel="stylesheet" href="/static/styles.css?v=68">
+  <link rel="stylesheet" href="/static/styles.css?v=70">
   <link rel="icon" type="image/png" href="/static/assets/vortex-veri-mark.png?v=2">
 </head>
 <body>
@@ -14,13 +14,13 @@
 <a class="skip-link" href="#mainContent">Skip to dashboard content</a>
 
 <header class="top">
-  <div class="brand-lockup">
+  <a class="brand-lockup brand-home-link" href="#overview" aria-label="Vortex Veri home">
     <img id="brandMark" class="brand-mark" src="/static/assets/vortex-veri-mark.png" alt="">
     <div>
       <div class="brand">Vortex Veri</div>
       <div id="freshness" class="freshness" aria-live="polite">Loading latest data…</div>
     </div>
-  </div>
+  </a>
   <div class="spacer"></div>
   <div class="range" role="group" aria-label="Reporting date range">
     <button data-preset="7" aria-pressed="false">7d</button>
@@ -365,9 +365,11 @@
           <div class="marketing-filter-funnel"><span>Funnel</span><div class="marketing-funnel-options" role="group" aria-label="Funnel"><button type="button" data-marketing-funnel="demand" aria-pressed="false">Demand</button><button type="button" data-marketing-funnel="supply" aria-pressed="false">Supply</button></div><select id="marketingFunnel" aria-label="Funnel" hidden></select></div>
         </div>
         <div id="marketingWorkbookLabel" class="marketing-filter-field marketing-workbook-field" hidden><span id="marketingWorkbookTitle">Google Drive workbooks</span><select id="marketingWorkbook" aria-label="Google Drive workbooks" hidden></select><div class="marketing-menu" data-marketing-select="marketingWorkbook"><button class="marketing-menu-trigger" type="button" aria-labelledby="marketingWorkbookTitle marketingWorkbookValue" aria-expanded="false"><span id="marketingWorkbookValue">Select workbook</span><span aria-hidden="true">⌄</span></button><div class="marketing-menu-options" hidden></div></div><span class="marketing-workbook-hint">Select any workbook to change the month and funnel.</span></div>
+        <button id="marketingRefreshWorkbooks" class="marketing-refresh-workbooks" type="button" title="Check Google Drive for updated workbooks"><svg class="icon icon-refresh" aria-hidden="true" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5M6.1 8.1A7 7 0 0 1 18.8 10L20 12M17.9 15.9A7 7 0 0 1 5.2 14L4 12"/></svg><span>Refresh workbooks</span></button>
       </div>
     </div>
     <div id="marketingAnalyticsAlert" class="callout" role="status" hidden></div>
+    <div id="marketingAnalyticsRetry" class="marketing-retry-state" role="alert" hidden><div><strong>Marketing Analytics is unavailable</strong><p id="marketingAnalyticsRetryMessage"></p></div><button id="marketingAnalyticsRetryButton" type="button">Retry</button></div>
     <div id="marketingReadStatus" class="marketing-read-status" role="status">Sheet data has not been loaded yet.</div>
     <details class="marketing-sheet-errors marketing-status-panel"><summary><span class="marketing-status-title">Portal source sync history</span><span class="marketing-status-action">View details <span aria-hidden="true">⌄</span></span></summary><div class="marketing-error-details" id="marketingSourceFreshness"></div></details>
     <details class="marketing-sheet-errors marketing-status-panel" id="marketingMappingStatus"><summary><span class="marketing-status-title">Campaign mapping check</span><span class="marketing-status-action"><span id="marketingMappingSummary">Checking</span> <span aria-hidden="true">⌄</span></span></summary><div class="marketing-error-details" id="marketingMappingDetails"></div></details>
@@ -481,7 +483,7 @@
 
     <div class="hub-grid">
       <article class="card feature-card quality-card">
-        <div class="feature-card-head"><div class="feature-icon" aria-hidden="true">✓</div><div><h2>Data quality</h2><p class="sub">Checks that protect reports from stale, missing, or inconsistent data.</p></div></div>
+        <div class="feature-card-head"><div class="feature-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.8 2.8 8.3 7 10 4.2-1.7 7-5.2 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-5"/></svg></div><div><h2>Data quality</h2><p class="sub">Checks that protect reports from stale, missing, or inconsistent data.</p></div></div>
         <div id="qualityList" class="quality-list" aria-live="polite"><div class="empty compact">Running checks…</div></div>
       </article>
       <article class="card feature-card insight-card">
@@ -551,7 +553,7 @@
             <option value="custom_rules">Custom automation rules</option>
           </select>
           <div class="automation-choice-summary">
-            <span class="automation-choice-icon" id="automationChoiceIcon" aria-hidden="true">↻</span>
+            <span class="automation-choice-icon" id="automationChoiceIcon" aria-hidden="true"><svg class="icon icon-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5"/><path d="M4 17v-5h5"/><path d="M6.1 8.1A7 7 0 0 1 18.8 10L20 12"/><path d="M17.9 15.9A7 7 0 0 1 5.2 14L4 12"/></svg></span>
             <div><b id="automationChoiceTitle">Scheduled data sync</b><small id="automationChoiceDescription">Refresh connected marketing and CRM sources automatically.</small></div>
           </div>
           <button id="createAutomation" data-admin-only class="primary" type="button">Configure automation</button>
@@ -629,6 +631,19 @@
             </form>
           </article>
           <article class="card settings-card settings-session-card"><div><h2>Signed-in devices</h2><p class="sub">Sign out other browsers and devices. This device stays signed in.</p></div><button id="revokeOtherSessions" type="button">Sign out other sessions</button><span id="sessionsState" role="status" aria-live="polite"></span></article>
+          <article class="card settings-card">
+            <div class="settings-card-heading"><div><span class="settings-eyebrow">Second factor</span><h2>Authenticator app</h2><p class="sub">Require a time-based code after your password. Enrollment signs out other sessions.</p></div></div>
+            <form id="mfaEnrollForm" class="settings-form settings-password-form">
+              <label for="mfaCurrentPassword">Current password<input id="mfaCurrentPassword" type="password" autocomplete="current-password" required></label>
+              <div class="settings-form-actions"><button type="submit" class="primary">Set up authenticator</button><span id="mfaState" role="status" aria-live="polite"></span></div>
+            </form>
+            <form id="mfaVerifyForm" class="settings-form settings-password-form" hidden>
+              <label for="mfaSecret">Authenticator setup key<input id="mfaSecret" readonly autocomplete="off"></label>
+              <label for="mfaVerifyCode">Six-digit code<input id="mfaVerifyCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required></label>
+              <div class="settings-form-actions"><button type="submit" class="primary">Enable MFA</button></div>
+            </form>
+            <div id="mfaRecovery" class="settings-invite-created" hidden><label>Recovery codes</label><p class="sub">Save these now. Each code works once and cannot be shown again.</p><pre id="mfaRecoveryCodes"></pre></div>
+          </article>
           <article class="card settings-card" data-admin-only>
             <div class="settings-card-heading"><div><span class="settings-eyebrow">Team access</span><h2>Invite a portal viewer</h2><p class="sub">Give a manager or colleague their own viewer account. You can revoke an unused invitation here.</p></div></div>
             <p class="callout settings-note"><b>Access boundary:</b> This creates a viewer-only portal login. It does not grant access to the Performance Gmail sender or sign in with Google. The email address is not verified, so anyone with the one-time link can complete setup for that invited address. The link expires after 72 hours and is not emailed automatically. Share it privately and revoke it if exposed. This link uses the current portal address; localhost only works on this computer. Remote invitees need a reachable HTTPS or approved private-network address.</p>
@@ -783,7 +798,7 @@
 
 <button id="assistantLauncher" class="assistant-launcher" type="button" aria-expanded="false" aria-controls="assistantPanel" aria-label="Open AI assistant">Ask AI</button>
 <section id="assistantPanel" class="assistant-panel" aria-label="AI assistant" hidden>
-  <div class="assistant-head"><div><strong>Ask the portal</strong><small id="assistantStatus">Checking reports…</small></div><button id="assistantClose" type="button" aria-label="Close AI assistant">×</button></div>
+  <div class="assistant-head"><div><strong>Ask the portal</strong><small id="assistantStatus">Checking reports…</small></div><button id="assistantClose" type="button" aria-label="Close AI assistant"><svg class="icon" aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
   <div id="assistantMessages" class="assistant-messages" role="log" aria-live="polite"><p class="assistant-intro">Ask about stored portal data or how to use its features. Dates in your question override the dashboard date range.</p><div class="assistant-prompts" aria-label="Example questions"><button type="button" data-assistant-prompt="What was our spend today?">Spend today</button><button type="button" data-assistant-prompt="How many CRM leads did we get yesterday?">Leads yesterday</button><button type="button" data-assistant-prompt="Compare spend today vs yesterday">Compare dates</button><button type="button" data-assistant-prompt="What can this portal do?">Portal help</button><button type="button" data-assistant-prompt="How do I invite my manager to view the portal?">Manager access</button></div></div>
   <form id="assistantForm" class="assistant-form">
     <label class="sr-only" for="assistantQuestion">Question for the portal</label>

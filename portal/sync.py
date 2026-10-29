@@ -73,6 +73,10 @@ def run_connection(conn: Connection, start: date, end: date) -> dict:
                 rollup_daily(rollup_start, rollup_end)
                 if conn.provider == "superleap_crm":
                     rollup_campaign_daily(rollup_start, rollup_end, conn.id)
+            if table in {"paid_metrics", "crm_leads", "crm_daily", "crm_campaign_daily"}:
+                from .api import invalidate_campaign_cache, invalidate_report_cache
+                invalidate_campaign_cache()
+                invalidate_report_cache()
             if not written:
                 status = "empty"
             message = (f"{written:,} rows into {table} for {start} → {end}"
@@ -87,6 +91,10 @@ def run_connection(conn: Connection, start: date, end: date) -> dict:
         "finished_at=datetime('now') WHERE id=?",
         (status, written, message[:4000], run_id),
     )
+    # Connection health changed even when the provider failed or returned no
+    # rows, so freshness cards must not retain the prior run state.
+    from .api import invalidate_report_cache
+    invalidate_report_cache()
     return {
         "connection_id": conn.id, "provider": conn.provider, "name": conn.name,
         "status": status, "rows": written, "message": message,

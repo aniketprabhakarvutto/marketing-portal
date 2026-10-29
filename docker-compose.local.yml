@@ -5,9 +5,16 @@ services:
       dockerfile: Dockerfile
     image: vortex-veri:local
     restart: unless-stopped
-    env_file: deploy/local.env
+    # Use the same configured warehouse and encryption settings as the portal
+    # runtime. The container must listen on all interfaces for Docker's local
+    # port-forwarder; the published port remains loopback-only.
+    env_file: .env
+    environment:
+      PORTAL_HOST: 0.0.0.0
+      PORTAL_COOKIE_SECURE: "false"
+      PORTAL_TRUST_LOOPBACK_HOST_FOR_SETUP: "true"
     ports:
-      - "127.0.0.1:8788:8787"
+      - "127.0.0.1:8789:8787"
     volumes:
       - vortex-veri-local-data:/data
       - ./backups:/app/backups

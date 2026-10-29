@@ -54,6 +54,11 @@ def _p(params: dict, key: str, default=None):
     return vals[0] if vals else default
 
 
+def _enabled_query_flag(params: dict, *keys: str) -> bool:
+    """Return whether a request explicitly opts in to an expensive action."""
+    return any(str(_p(params, key, "")).lower() in {"1", "true", "yes"} for key in keys)
+
+
 def _int(params: dict, key: str, default: int) -> int:
     try:
         return int(_p(params, key, default))
@@ -118,6 +123,7 @@ def create_connection(params: dict, body: dict) -> dict:
     name = str(body.get("name") or "").strip() or provider.label
     config, secrets = _split_fields(provider, body.get("values") or {})
     conn = conns.create(provider_id, name, config, secrets)
+    api.invalidate_report_cache()
     db.audit("create", "connection", conn.id, {"provider": provider_id, "name": name})
     return conns.public(conn, provider)
 
@@ -134,6 +140,7 @@ def update_connection(connection_id: int, body: dict) -> dict:
         config=config, secrets=secrets,
         enabled=body.get("enabled"),
     )
+    api.invalidate_report_cache()
     db.audit("update", "connection", connection_id, {"provider": conn.provider, "name": updated.name})
     return conns.public(updated, provider)
 
@@ -177,6 +184,9 @@ def delete_connection(connection_id: int, params: dict) -> dict:
     drop = _p(params, "drop_data") in ("1", "true", "yes")
     if not conns.delete(connection_id, drop_data=drop):
         raise KeyError(f"no connection with id {connection_id}")
+    api.invalidate_report_cache()
+    if drop:
+        api.invalidate_campaign_cache()
     oauth.forget(connection_id)
     db.audit("delete", "connection", connection_id,
              {"provider": connection.provider, "name": connection.name, "data_removed": drop})
@@ -206,7 +216,11 @@ GET_ROUTES = {
     "/api/web": lambda p: api.web(_p(p, "start"), _p(p, "end"), _p(p, "dim", "channel")),
     "/api/crm": lambda p: api.crm(_p(p, "start"), _p(p, "end")),
     "/api/data-quality": lambda p: api.data_quality(_p(p, "start"), _p(p, "end")),
-    "/api/marketing-analytics/workbooks": lambda p: {"workbooks": marketing_analytics.workbooks()},
+    "/api/marketing-analytics/workbooks": lambda p: {
+        "workbooks": marketing_analytics.workbooks(
+            discover=_enabled_query_flag(p, "discover", "refresh")
+        )
+    },
     "/api/marketing-analytics/mapping-status": lambda p: marketing_analytics.mapping_status(_p(p, "month")),
     "/api/marketing-analytics/tab": lambda p: marketing_analytics.read_tab(
         _int(p, "connection_id", 0), _p(p, "tab"), _p(p, "range", "A1:ZZ500"),
@@ -310,6 +324,20 @@ class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     # -- plumbing -----------------------------------------------------------
+    def handle_one_request(self):
+        """Return remote PostgreSQL connections after every HTTP request."""
+        try:
+            super().handle_one_request()
+        except db.DatabaseUnavailable:
+            # Connection acquisition is bounded.  Return a retryable response
+            # instead of leaving a handler thread blocked or dropping the socket.
+            log.warning("database temporarily unavailable while serving %s", getattr(self, "path", "request"))
+            self._error(503, "Database temporarily unavailable. Please retry.")
+        finally:
+            if db.using_postgres():
+                close_connection()
+                db.set_audit_actor(None)
+
     def handle(self):
         """Serve this connection, then release its database handle.
 
@@ -475,8 +503,9 @@ class Handler(BaseHTTPRequestHandler):
                 return True
             common = {
                 "/api/auth/me", "/api/meta", "/api/providers", "/api/connections",
+                "/api/bootstrap",
                 "/api/assistant/status",
-                "/api/auth/profile", "/api/auth/gmail", "/api/ui-preferences",
+                "/api/auth/profile", "/api/auth/gmail", "/api/auth/mfa", "/api/ui-preferences",
                 "/api/overview", "/api/timeseries", "/api/channels", "/api/campaigns",
                 "/api/search", "/api/ahrefs", "/api/web", "/api/crm",
                 "/api/data-quality", "/api/automation", "/api/planning",
@@ -699,9 +728,36 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/api/auth/me":
             self._json({"user": user, "csrf_token": session["csrf_token"]})
             return
+        if route == "/api/bootstrap":
+            bootstrap_meta = api.meta()
+            dashboard_end = bootstrap_meta.get("data_to") or api.portal_today().isoformat()
+            dashboard_start = (date.fromisoformat(dashboard_end) - timedelta(days=29)).isoformat()
+            account = auth.bootstrap_account(int(user["id"]))
+            self._json({
+                "user": user,
+                "csrf_token": session["csrf_token"],
+                "meta": bootstrap_meta,
+                "connections": api.connections(),
+                "automation_rules": (account["automation_rules"]
+                                     if user["role"] == "admin" else {"rules": []}),
+                "profile": account["profile"],
+                "ui_preferences": account["ui_preferences"],
+                "overview_bundle": {
+                    "overview": api.overview(dashboard_start, dashboard_end),
+                    "timeseries": api.timeseries(dashboard_start, dashboard_end),
+                    "channels": api.channels(dashboard_start, dashboard_end),
+                },
+            })
+            return
         if route == "/api/auth/profile":
             try:
                 self._json(auth.profile(int(user["id"])))
+            except ValueError as exc:
+                self._error(404, str(exc))
+            return
+        if route == "/api/auth/mfa":
+            try:
+                self._json(auth.mfa_status(int(user["id"])))
             except ValueError as exc:
                 self._error(404, str(exc))
             return
@@ -838,6 +894,24 @@ class Handler(BaseHTTPRequestHandler):
             if not result:
                 self._error(401, "Email or password is incorrect, or sign-in is temporarily unavailable.")
                 return
+            if result.get("mfa_required"):
+                self._json({"mfa_required": True, "challenge": result["challenge"]})
+                return
+            self._json({"user": result["user"]}, headers={"Set-Cookie": self._set_session_cookie(result["token"])})
+            return
+
+        if route == "/api/auth/mfa/verify":
+            if not self._same_origin():
+                self._error(403, "The verification request must come from this portal.")
+                return
+            body = self._read_body()
+            if body is None:
+                return
+            try:
+                result = auth.verify_mfa(body.get("challenge"), body.get("code"))
+            except ValueError as exc:
+                self._error(401, str(exc))
+                return
             self._json({"user": result["user"]}, headers={"Set-Cookie": self._set_session_cookie(result["token"])})
             return
 
@@ -882,6 +956,26 @@ class Handler(BaseHTTPRequestHandler):
                 return
             auth.revoke_session(self._current_token(), actor=user["email"])
             self._json({"ok": True}, headers={"Set-Cookie": self._clear_session_cookie()})
+            return
+        if route == "/api/auth/mfa/enroll":
+            body = self._read_body()
+            if body is None:
+                return
+            try:
+                self._json(auth.begin_mfa_enrollment(int(user["id"]), body.get("current_password")))
+            except ValueError as exc:
+                self._error(400, str(exc))
+            return
+        if route == "/api/auth/mfa/enable":
+            body = self._read_body()
+            if body is None:
+                return
+            try:
+                result = auth.complete_mfa_enrollment(body.get("challenge"), body.get("code"))
+            except ValueError as exc:
+                self._error(400, str(exc))
+                return
+            self._json({"user": result["user"], "csrf_token": result["csrf_token"], "recovery_codes": result["recovery_codes"]}, headers={"Set-Cookie": self._set_session_cookie(result["token"])})
             return
         if route == "/api/auth/password":
             body = self._read_body()
@@ -1033,6 +1127,17 @@ def build_server() -> ThreadingHTTPServer:
             "PORTAL_COOKIE_SECURE must be enabled before the portal can listen on a network address. Put the HTTP server behind HTTPS."
         )
     init_db()
+    if not local_only and not local_docker_http:
+        if not APP.mfa_encryption_key:
+            raise RuntimeError("PORTAL_MFA_ENCRYPTION_KEY is required before the portal can listen on a network address.")
+        unenrolled = db.scalar(
+            "SELECT COUNT(*) FROM portal_users WHERE enabled=1 AND password_hash!='' AND mfa_enabled=0",
+            default=0,
+        )
+        if unenrolled:
+            raise RuntimeError(
+                "Every enabled portal account must enroll MFA before the portal can listen on a network address."
+            )
     from .sync import recover_interrupted_runs
     # Bind first. A second process that cannot own this port must not mark
     # the live process's syncs or scheduled jobs as interrupted.

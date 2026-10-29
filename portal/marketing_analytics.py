@@ -12,11 +12,12 @@ from decimal import Decimal, InvalidOperation
 import json
 import math
 import re
+from time import monotonic
 from urllib.parse import quote
 
 from . import connections as conns
 from .db import query
-from .httpclient import HttpError, get, request
+from .httpclient import GOOGLE_API_TIMEOUT, HttpError, get as _http_get, request as _http_request
 from .oauth import access_token
 from .providers import REGISTRY
 
@@ -43,6 +44,20 @@ IGNORED_CAMPAIGNS = frozenset({
     "Google_Hyyv_Search_Campaign_2",
     "Hyyv_demand_demandgen_",
 })
+DISCOVERY_CACHE_SECONDS = 300
+_discovery_cache: dict[tuple[int, str, str, str], tuple[float, list[dict]]] = {}
+
+
+def get(url: str, **kwargs):
+    """Keep interactive Google calls bounded without changing other providers."""
+    kwargs.setdefault("timeout", GOOGLE_API_TIMEOUT)
+    return _http_get(url, **kwargs)
+
+
+def request(method: str, url: str, **kwargs):
+    """Keep interactive Google write calls bounded without changing other providers."""
+    kwargs.setdefault("timeout", GOOGLE_API_TIMEOUT)
+    return _http_request(method, url, **kwargs)
 
 
 def _sheet_provider():
@@ -99,6 +114,7 @@ def _metadata(conn, spreadsheet_id: str = "") -> dict:
         f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}",
         headers={"Authorization": f"Bearer {_token(conn)}"},
         params={"fields": "spreadsheetId,properties.title,sheets.properties"},
+        timeout=GOOGLE_API_TIMEOUT,
     )
 
 
@@ -114,7 +130,11 @@ def _drive_files(conn) -> list[dict]:
         params = {"q": query, "fields": "nextPageToken,files(id,name,modifiedTime)", "pageSize": 1000}
         if page_token:
             params["pageToken"] = page_token
-        body = get("https://www.googleapis.com/drive/v3/files", headers={"Authorization": f"Bearer {_token(conn)}"}, params=params)
+        body = get(
+            "https://www.googleapis.com/drive/v3/files",
+            headers={"Authorization": f"Bearer {_token(conn)}"}, params=params,
+            timeout=GOOGLE_API_TIMEOUT,
+        )
         files.extend(body.get("files") or [])
         page_token = body.get("nextPageToken") or ""
         if not page_token:
@@ -127,61 +147,87 @@ def _discovered_role(title: str) -> str:
     return match.group(1).lower() if match else ""
 
 
-def workbooks() -> list[dict]:
-    """Return saved and matching read-only Marketing Analytics workbooks."""
+def _tabs(metadata: dict) -> list[dict]:
+    return [
+        {"id": int((sheet.get("properties") or {}).get("sheetId") or 0),
+         "title": str((sheet.get("properties") or {}).get("title") or "")}
+        for sheet in metadata.get("sheets") or []
+        if (sheet.get("properties") or {}).get("title")
+    ]
+
+
+def _saved_workbook(conn) -> dict:
+    """Build a listing row using only the saved connection record."""
+    name = conn.name
+    return {
+        "connection_id": conn.id,
+        "name": name,
+        "role": _role(conn),
+        "month": _month_key(name) or str(conn.get("analytics_month") or "").strip(),
+        "spreadsheet_id": _spreadsheet_id(conn),
+        "tabs": [],
+        "status": "ready",
+        "message": "",
+    }
+
+
+def _cache_key(conn) -> tuple[int, str, str, str]:
+    return (conn.id, _spreadsheet_id(conn), _role(conn), str(conn.get("drive_folder_id") or ""))
+
+
+def _discover_workbooks(conn, saved: dict) -> list[dict]:
+    """Fetch workbook metadata and Drive siblings after DB work has completed."""
+    key = _cache_key(conn)
+    cached = _discovery_cache.get(key)
+    if cached and cached[0] > monotonic():
+        return cached[1]
+
+    item = {**saved, "tabs": []}
+    out = [item]
+    try:
+        metadata = _metadata(conn)
+        title = str((metadata.get("properties") or {}).get("title") or conn.name)
+        item["name"] = title
+        item["month"] = _month_key(title) or str(conn.get("analytics_month") or "").strip()
+        item["tabs"] = _tabs(metadata)
+    except Exception as exc:  # one inaccessible workbook must not hide the other
+        item["status"] = "error"
+        item["message"] = str(exc)
+        _discovery_cache[key] = (monotonic() + DISCOVERY_CACHE_SECONDS, out)
+        return out
+
+    try:
+        for discovered in _drive_files(conn):
+            spreadsheet_id = str(discovered.get("id") or "")
+            if not spreadsheet_id or spreadsheet_id == item["spreadsheet_id"]:
+                continue
+            discovered_metadata = _metadata(conn, spreadsheet_id)
+            out.append({
+                "connection_id": conn.id, "name": str(discovered.get("name") or ""),
+                "role": _role(conn), "month": _month_key(str(discovered.get("name") or "")),
+                "spreadsheet_id": spreadsheet_id, "tabs": _tabs(discovered_metadata),
+                "status": "discovered", "message": "Discovered from the configured Drive folder.",
+            })
+    except Exception as exc:
+        # The saved workbook is still usable when sibling discovery fails.
+        item["message"] = f"Drive discovery unavailable: {exc}"
+    _discovery_cache[key] = (monotonic() + DISCOVERY_CACHE_SECONDS, out)
+    return out
+
+
+def workbooks(discover: bool = False) -> list[dict]:
+    """List saved workbooks immediately; fetch Google metadata only on refresh."""
+    # all_connections finishes its database read before any Google request.
+    connections = tuple(conns.all_connections(provider="google_sheets"))
+    saved = [_saved_workbook(conn) for conn in connections
+             if _role(conn) in {"demand", "supply"} and _viewable(conn)]
+    if not discover:
+        return sorted(saved, key=lambda item: (item["month"], item["role"], item["name"]), reverse=True)
+
+    by_id = {conn.id: conn for conn in connections}
     out = []
-    for conn in conns.all_connections(provider="google_sheets"):
-        role = _role(conn)
-        if role not in {"demand", "supply"} or not _viewable(conn):
-            continue
-        item = {
-            "connection_id": conn.id,
-            "name": conn.name,
-            "role": role,
-            "month": "",
-            "spreadsheet_id": _spreadsheet_id(conn),
-            "tabs": [],
-            "status": "ready",
-            "message": "",
-        }
-        try:
-            metadata = _metadata(conn)
-            title = str((metadata.get("properties") or {}).get("title") or conn.name)
-            item["name"] = title
-            item["month"] = _month_key(title) or str(conn.get("analytics_month") or "").strip()
-            item["tabs"] = [
-                {"id": int((sheet.get("properties") or {}).get("sheetId") or 0),
-                 "title": str((sheet.get("properties") or {}).get("title") or "")}
-                for sheet in metadata.get("sheets") or []
-                if (sheet.get("properties") or {}).get("title")
-            ]
-        except Exception as exc:  # one inaccessible workbook must not hide the other
-            item["status"] = "error"
-            item["message"] = str(exc)
-        out.append(item)
-        if item["status"] == "error":
-            continue
-        try:
-            for discovered in _drive_files(conn):
-                spreadsheet_id = str(discovered.get("id") or "")
-                if not spreadsheet_id or any(row["spreadsheet_id"] == spreadsheet_id for row in out):
-                    continue
-                discovered_metadata = _metadata(conn, spreadsheet_id)
-                out.append({
-                    "connection_id": conn.id, "name": str(discovered.get("name") or ""),
-                    "role": role, "month": _month_key(str(discovered.get("name") or "")),
-                    "spreadsheet_id": spreadsheet_id,
-                    "tabs": [
-                        {"id": int((sheet.get("properties") or {}).get("sheetId") or 0),
-                         "title": str((sheet.get("properties") or {}).get("title") or "")}
-                        for sheet in discovered_metadata.get("sheets") or []
-                        if (sheet.get("properties") or {}).get("title")
-                    ],
-                    "status": "discovered", "message": "Discovered from the configured Drive folder.",
-                })
-        except Exception as exc:
-            item["status"] = "error"
-            item["message"] = str(exc)
+    for item in saved:
+        out.extend(_discover_workbooks(by_id[item["connection_id"]], item))
     return sorted(out, key=lambda item: (item["month"], item["role"], item["name"]), reverse=True)
 
 

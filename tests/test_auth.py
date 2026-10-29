@@ -107,6 +107,13 @@ class AuthBoundaryTests(unittest.TestCase):
         self.assertEqual(status, 503)
         self.assertNotIn(b"private database detail", body)
 
+    def test_database_pool_exhaustion_returns_a_retryable_503(self) -> None:
+        with patch.object(server.Handler, "_session", side_effect=db.DatabaseUnavailable("private pool detail")):
+            status, _, body = self.request("GET", "/api/overview")
+        self.assertEqual(status, 503)
+        self.assertIn(b"Database temporarily unavailable", body)
+        self.assertNotIn(b"private pool detail", body)
+
     def test_setup_role_limits_csrf_and_logout(self) -> None:
         cookie, csrf = self.login_admin()
         status, _, body = self.request("POST", "/api/auth/setup", {

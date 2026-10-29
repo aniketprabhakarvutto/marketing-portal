@@ -6,7 +6,7 @@ import importlib
 from ..models import TABLE_MODELS
 
 
-MIGRATIONS = ("0001_initial", "0002_crm_origins")
+MIGRATIONS = ("0001_initial", "0002_crm_origins", "0003_campaign_revenue_rollup", "0004_paid_reporting_indexes", "0005_account_mfa")
 
 
 def _execute_script(connection, script: str) -> None:

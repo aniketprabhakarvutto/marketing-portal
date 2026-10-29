@@ -10,9 +10,12 @@ import secrets
 import sqlite3
 import threading
 import time
+import struct
+from urllib.parse import quote
 from typing import Any
 
 from . import db
+from .config import APP
 
 PASSWORD_ITERATIONS = 600_000
 SESSION_HOURS = 8
@@ -24,6 +27,10 @@ _login_lock = threading.Lock()
 _login_failures: dict[str, list[float]] = {}
 _login_inflight: dict[str, int] = {}
 _login_hash_slots = threading.BoundedSemaphore(4)
+MFA_CHALLENGE_SECONDS = 5 * 60
+MFA_MAX_FAILURES = 8
+_mfa_lock = threading.Lock()
+_mfa_challenges: dict[str, dict[str, Any]] = {}
 
 UI_PREFERENCE_KEYS = frozenset({
     "savedPortalViews", "marketingDashboardViews", "customMetrics", "calendarDatePresets", "campaignColumns",
@@ -175,6 +182,135 @@ def _safe_user(row) -> dict[str, Any]:
     return {key: row[key] for key in ("id", "email", "display_name", "role", "enabled", "created_at", "updated_at")}
 
 
+def _mfa_fernet():
+    if not APP.mfa_encryption_key:
+        raise ValueError("MFA encryption is not configured on this portal.")
+    try:
+        from cryptography.fernet import Fernet
+        return Fernet(APP.mfa_encryption_key.encode("ascii"))
+    except (ImportError, ValueError, UnicodeError) as exc:
+        raise ValueError("MFA encryption is not configured correctly.") from exc
+
+
+def _totp(secret: str, at: int | None = None) -> str:
+    counter = int(at if at is not None else time.time()) // 30
+    key = base64.b32decode(secret + "=" * (-len(secret) % 8), casefold=True)
+    digest = hmac.new(key, struct.pack(">Q", counter), hashlib.sha1).digest()
+    offset = digest[-1] & 15
+    value = (struct.unpack(">I", digest[offset:offset + 4])[0] & 0x7fffffff) % 1_000_000
+    return f"{value:06d}"
+
+
+def _totp_matches(secret: str, code: str) -> bool:
+    normalized = re.sub(r"\s+", "", str(code or ""))
+    now = int(time.time())
+    return bool(re.fullmatch(r"\d{6}", normalized)) and any(
+        hmac.compare_digest(_totp(secret, now + offset * 30), normalized) for offset in (-1, 0, 1)
+    )
+
+
+def _recovery_hash(code: str) -> str:
+    key = hashlib.sha256(APP.mfa_encryption_key.encode("utf-8")).digest()
+    normalized = re.sub(r"[^A-Za-z0-9]", "", str(code or "")).upper()
+    return hmac.new(key, normalized.encode("ascii", "ignore"), hashlib.sha256).hexdigest()
+
+
+def _new_challenge(user_id: int, purpose: str) -> str:
+    token = secrets.token_urlsafe(32)
+    now = time.time()
+    with _mfa_lock:
+        for key in [key for key, item in _mfa_challenges.items() if item["expires"] <= now]:
+            _mfa_challenges.pop(key, None)
+        _mfa_challenges[hashlib.sha256(token.encode()).hexdigest()] = {
+            "user_id": user_id, "purpose": purpose, "expires": now + MFA_CHALLENGE_SECONDS, "failures": 0,
+        }
+    return token
+
+
+def _challenge(token: str, purpose: str | None = None) -> tuple[str, dict[str, Any]]:
+    key = hashlib.sha256(str(token or "").encode()).hexdigest()
+    with _mfa_lock:
+        item = _mfa_challenges.get(key)
+        if not item or item["expires"] <= time.time() or item["failures"] >= MFA_MAX_FAILURES:
+            _mfa_challenges.pop(key, None)
+            raise ValueError("This verification request expired. Sign in again.")
+        if purpose and item["purpose"] != purpose:
+            raise ValueError("This verification request is invalid.")
+        return key, dict(item)
+
+
+def mfa_status(user_id: int) -> dict[str, Any]:
+    rows = db.query("SELECT mfa_enabled FROM portal_users WHERE id=? AND enabled=1", (user_id,))
+    if not rows:
+        raise ValueError("This account is unavailable.")
+    return {"enabled": bool(rows[0]["mfa_enabled"]), "required": True}
+
+
+def begin_mfa_enrollment(user_id: int, current_password: str) -> dict[str, Any]:
+    row = db.query("SELECT email,password_hash FROM portal_users WHERE id=? AND enabled=1", (user_id,))
+    if not row or not _password_matches(str(current_password or ""), row[0]["password_hash"]):
+        raise ValueError("Current password is incorrect.")
+    secret = base64.b32encode(secrets.token_bytes(20)).decode("ascii").rstrip("=")
+    encrypted = _mfa_fernet().encrypt(secret.encode("ascii")).decode("ascii")
+    db.execute("UPDATE portal_users SET mfa_secret_encrypted=?,mfa_recovery_hashes='[]',mfa_enabled=0,updated_at=datetime('now') WHERE id=?", (encrypted, user_id))
+    token = _new_challenge(user_id, "enroll")
+    label = quote(row[0]["email"], safe="")
+    uri = f"otpauth://totp/Vortex%20Veri:{label}?secret={secret}&issuer=Vortex%20Veri&algorithm=SHA1&digits=6&period=30"
+    return {"challenge": token, "secret": secret, "provisioning_uri": uri}
+
+
+def complete_mfa_enrollment(challenge: str, code: str) -> dict[str, Any]:
+    key, item = _challenge(challenge, "enroll")
+    row = db.query("SELECT mfa_secret_encrypted FROM portal_users WHERE id=? AND enabled=1", (item["user_id"],))
+    try:
+        secret = _mfa_fernet().decrypt(row[0]["mfa_secret_encrypted"].encode("ascii")).decode("ascii") if row else ""
+    except Exception:
+        secret = ""
+    if not secret or not _totp_matches(secret, code):
+        with _mfa_lock:
+            if key in _mfa_challenges:
+                _mfa_challenges[key]["failures"] += 1
+        raise ValueError("The verification code is incorrect.")
+    codes = [secrets.token_hex(5).upper() for _ in range(10)]
+    db.execute("UPDATE portal_users SET mfa_enabled=1,mfa_recovery_hashes=?,updated_at=datetime('now') WHERE id=?", (json.dumps([_recovery_hash(code) for code in codes]), item["user_id"]))
+    db.execute("UPDATE auth_sessions SET revoked_at=datetime('now') WHERE user_id=? AND revoked_at IS NULL", (item["user_id"],))
+    with _mfa_lock:
+        _mfa_challenges.pop(key, None)
+    db.audit("mfa_enabled", "user", item["user_id"], {}, actor="self")
+    result = _make_session(item["user_id"])
+    result["recovery_codes"] = codes
+    return result
+
+
+def verify_mfa(challenge: str, code: str) -> dict[str, Any]:
+    key, item = _challenge(challenge, "login")
+    row = db.query("SELECT mfa_secret_encrypted,mfa_recovery_hashes FROM portal_users WHERE id=? AND enabled=1 AND mfa_enabled=1", (item["user_id"],))
+    valid = False
+    recovery_index = -1
+    if row:
+        try:
+            secret = _mfa_fernet().decrypt(row[0]["mfa_secret_encrypted"].encode("ascii")).decode("ascii")
+            valid = _totp_matches(secret, code)
+            hashes = json.loads(row[0]["mfa_recovery_hashes"] or "[]")
+            supplied = _recovery_hash(code)
+            recovery_index = next((i for i, value in enumerate(hashes) if hmac.compare_digest(value, supplied)), -1)
+            valid = valid or recovery_index >= 0
+        except Exception:
+            valid = False
+    if not valid:
+        with _mfa_lock:
+            if key in _mfa_challenges:
+                _mfa_challenges[key]["failures"] += 1
+        raise ValueError("The verification code is incorrect.")
+    if recovery_index >= 0:
+        hashes.pop(recovery_index)
+        db.execute("UPDATE portal_users SET mfa_recovery_hashes=?,updated_at=datetime('now') WHERE id=?", (json.dumps(hashes), item["user_id"]))
+        db.audit("mfa_recovery_code_used", "user", item["user_id"], {"remaining": len(hashes)}, actor="self")
+    with _mfa_lock:
+        _mfa_challenges.pop(key, None)
+    return _make_session(item["user_id"])
+
+
 def users() -> list[dict[str, Any]]:
     return [_safe_user(row) for row in db.query(
         "SELECT id,email,display_name,role,enabled,created_at,updated_at "
@@ -309,7 +445,7 @@ def login(email: str, password: str, remote_addr: str) -> dict[str, Any] | None:
             _password_matches("invalid", _DUMMY_PASSWORD_HASH)
             return None
         row = db.query(
-            "SELECT id,email,password_hash FROM portal_users WHERE email=? AND enabled=1",
+            "SELECT id,email,password_hash,mfa_enabled FROM portal_users WHERE email=? AND enabled=1",
             (normalized,),
         )
         encoded = row[0]["password_hash"] if row else ""
@@ -320,7 +456,10 @@ def login(email: str, password: str, remote_addr: str) -> dict[str, Any] | None:
         if not valid or not row:
             return None
         failed = False
-        return _make_session(int(row[0]["id"]))
+        user_id = int(row[0]["id"])
+        if bool(row[0]["mfa_enabled"]):
+            return {"mfa_required": True, "challenge": _new_challenge(user_id, "login")}
+        return _make_session(user_id)
     finally:
         _finish_login_attempt(keys, time.time(), failed)
         _login_hash_slots.release()
@@ -368,6 +507,46 @@ def profile(user_id: int) -> dict[str, Any]:
                 "sync_complete": bool(notifications.get("sync_complete", False)),
             },
         },
+    }
+
+
+def bootstrap_account(user_id: int) -> dict[str, Any]:
+    """Load profile, UI preferences and automation rules in one round trip."""
+    rows = db.query(
+        "SELECT u.id,u.email,u.display_name,u.role,u.enabled,u.created_at,u.updated_at,"
+        "u.preferences_json,"
+        "(SELECT value FROM portal_settings WHERE key='automation_rules') automation_rules "
+        "FROM portal_users u WHERE u.id=? AND u.enabled=1", (user_id,))
+    if not rows:
+        raise ValueError("This account is unavailable.")
+    row = rows[0]
+    try:
+        saved = json.loads(row["preferences_json"] or "{}")
+    except (TypeError, json.JSONDecodeError):
+        saved = {}
+    saved = saved if isinstance(saved, dict) else {}
+    notifications = saved.get("notifications") if isinstance(saved.get("notifications"), dict) else {}
+    ui = saved.get("ui") if isinstance(saved.get("ui"), dict) else {}
+    try:
+        rules = json.loads(row["automation_rules"] or "[]")
+    except (TypeError, json.JSONDecodeError):
+        rules = []
+    return {
+        "profile": {
+            "user": _safe_user(row),
+            "preferences": {
+                "theme": saved.get("theme") if saved.get("theme") in {"system", "light", "dark"} else "system",
+                "accent": saved.get("accent") if isinstance(saved.get("accent"), str) and re.fullmatch(r"#[0-9a-fA-F]{6}", saved.get("accent", "")) else "",
+                "notifications": {
+                    "browser": bool(notifications.get("browser", False)),
+                    "sync_failures": bool(notifications.get("sync_failures", True)),
+                    "sync_complete": bool(notifications.get("sync_complete", False)),
+                },
+            },
+        },
+        "ui_preferences": {"preferences": {key: value for key, value in ui.items()
+                                              if key in UI_PREFERENCE_KEYS}},
+        "automation_rules": {"rules": rules if isinstance(rules, list) else []},
     }
 
 

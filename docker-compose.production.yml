@@ -5,6 +5,7 @@ services:
     env_file: deploy/production.env
     ports:
       - "127.0.0.1:8787:8787"
+    # Use /readyz (DB check) rather than /healthz so a proxy only routes once ready.
     volumes:
       - /srv/vortex-veri/data:/data
       - /srv/vortex-veri/backups:/app/backups

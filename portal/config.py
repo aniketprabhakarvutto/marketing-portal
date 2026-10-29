@@ -94,6 +94,9 @@ class AppCfg:
     # application-held Fernet key to encrypt connector credentials at rest.
     secret_store_backend: str = os.getenv("PORTAL_SECRET_STORE", "keychain").strip().lower()
     secret_encryption_key: str = os.getenv("PORTAL_SECRET_ENCRYPTION_KEY", "").strip()
+    mfa_encryption_key: str = os.getenv(
+        "PORTAL_MFA_ENCRYPTION_KEY", os.getenv("PORTAL_SECRET_ENCRYPTION_KEY", "")
+    ).strip()
     # Forwarded client IPs are ignored unless an operator explicitly trusts a
     # proxy that sanitizes them. Empty by default to avoid trusting local apps.
     trusted_proxy_ips: tuple[str, ...] = tuple(_l("PORTAL_TRUSTED_PROXY_IPS"))
@@ -111,6 +114,10 @@ class AppCfg:
     # conventional environment variable supplied by managed PostgreSQL hosts.
     # Leaving this blank retains the local SQLite database for development.
     database_url: str = os.getenv("PORTAL_DATABASE_URL", os.getenv("DATABASE_URL", "")).strip()
+    # Keep the application well below small managed PostgreSQL plan limits.
+    # This is deliberately capped at four even when an environment is misconfigured.
+    postgres_pool_size: int = max(1, min(4, _i("PORTAL_POSTGRES_POOL_SIZE", 4)))
+    postgres_acquire_timeout_seconds: int = max(1, _i("PORTAL_POSTGRES_ACQUIRE_TIMEOUT_SECONDS", 5))
     timezone: str = os.getenv("PORTAL_TIMEZONE", "Asia/Kolkata").strip()
     currency: str = os.getenv("PORTAL_CURRENCY", "INR").strip()
     demo_mode: bool = _b("DEMO_MODE", True)

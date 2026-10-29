@@ -74,5 +74,19 @@ def rollup_campaign_daily(start: date, end: date, connection_id: int) -> int:
         """,
         (connection_id, s, e),
     )
+    execute("DELETE FROM crm_campaign_revenue_daily WHERE connection_id = ? AND date BETWEEN ? AND ?",
+            (connection_id, s, e))
+    execute(
+        """
+        INSERT INTO crm_campaign_revenue_daily
+            (date, channel, campaign_name, lead_type, revenue, connection_id)
+        SELECT created_date, channel, TRIM(utm_campaign), lead_type,
+               COALESCE(SUM(revenue), 0), connection_id
+        FROM crm_leads
+        WHERE connection_id = ? AND created_date BETWEEN ? AND ? AND TRIM(utm_campaign) != ''
+        GROUP BY created_date, channel, TRIM(utm_campaign), lead_type, connection_id
+        """,
+        (connection_id, s, e),
+    )
     return int(scalar("SELECT COUNT(*) FROM crm_campaign_daily WHERE connection_id = ? AND date BETWEEN ? AND ?",
                       (connection_id, s, e)))

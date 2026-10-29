@@ -55,7 +55,11 @@ def seed_governance() -> None:
         ("roas", "Return on ad spend", "CRM revenue divided by advertising spend; unavailable until revenue is mapped.", "revenue / spend", "ratio"),
     ]
     for row in definitions:
-        execute("INSERT OR IGNORE INTO metric_definitions(key,label,description,formula,format) VALUES(?,?,?,?,?)", row)
+        execute(
+            "INSERT INTO metric_definitions(key,label,description,formula,format) "
+            "VALUES(?,?,?,?,?) ON CONFLICT(key) DO NOTHING",
+            row,
+        )
 
 
 def governance() -> dict[str, Any]:
@@ -87,62 +91,9 @@ def explore(body: dict[str, Any]) -> dict[str, Any]:
     metrics = [x for x in body.get("metrics", ["spend", "clicks"]) if x in METRICS][:8] or ["spend"]
     start, end = date_range(body.get("start"), body.get("end"))
     financial_metrics = [metric for metric in metrics if METRICS[metric][2] == "currency"]
-    rules = [dict(r) for r in query(
-        "SELECT field,match_type,pattern,output FROM transformation_rules "
-        "WHERE enabled=1 ORDER BY priority,id")]
-
-    def apply_rules(field: str, value: object, encoded_rules: str) -> str:
-        original = str(value or "")
-        try:
-            active_rules = json.loads(encoded_rules)
-        except (TypeError, json.JSONDecodeError):
-            return original
-        for rule in active_rules:
-            if rule.get("field") != field:
-                continue
-            pattern = str(rule.get("pattern") or "")
-            candidate = original.lower()
-            try:
-                matched = (
-                    (rule.get("match_type") == "equals" and candidate == pattern.lower())
-                    or (rule.get("match_type") == "contains" and pattern.lower() in candidate)
-                    or (rule.get("match_type") == "regex" and bool(re.search(pattern, original, re.I)))
-                )
-            except re.error:
-                matched = False
-            if matched:
-                return str(rule.get("output") or original)
-        return original
-
+    apply_rules = transformer()
     transform_fields = {"platform": "source", "campaign": "campaign_name",
                         "campaign_type": "channel"}
-    encoded_rules = json.dumps(rules)
-    db.connect().create_function("portal_transform", 3, apply_rules)
-    select: list[str] = []
-    group: list[str] = []
-    select_params: list[Any] = []
-    for dimension in dimensions:
-        field = DIMENSIONS[dimension]
-        transform_field = transform_fields.get(dimension)
-        if transform_field:
-            select.append(f"portal_transform(?,{field},?) AS {dimension}")
-            select_params.extend((transform_field, encoded_rules))
-            group.append(dimension)
-        else:
-            select.append(f"{field} AS {dimension}")
-            group.append(field)
-    result_dimensions = list(dimensions)
-    if financial_metrics:
-        # Account currencies cannot be added without an approved FX policy.
-        # Include currency even when all four user-selected dimensions are used.
-        select.append("UPPER(TRIM(COALESCE(currency,''))) AS currency")
-        group.append("UPPER(TRIM(COALESCE(currency,'')))")
-        result_dimensions.append("currency")
-    for metric in metrics:
-        expression = METRICS[metric][0]
-        if metric in financial_metrics:
-            expression = f"CASE WHEN TRIM(COALESCE(currency,'')) != '' THEN {expression} END"
-        select.append(f"{expression} AS {metric}")
     where = ["date BETWEEN ? AND ?"]
     params: list[Any] = [start, end]
     for item in body.get("filters", [])[:10]:
@@ -163,9 +114,51 @@ def explore(body: dict[str, Any]) -> dict[str, Any]:
     sort = sort if sort in metrics + dimensions else metrics[0]
     direction = "ASC" if str(body.get("direction")).lower() == "asc" else "DESC"
     limit = max(1, min(int(body.get("limit") or 100), 500))
-    sql = f"SELECT {','.join(select)} FROM paid_metrics WHERE {' AND '.join(where)} GROUP BY {','.join(group)} ORDER BY {sort} {direction} LIMIT ?"
-    params = select_params + params + [limit]
-    rows = [dict(r) for r in query(sql, params)]
+    raw_fields = list(dict.fromkeys([DIMENSIONS[item] for item in dimensions] + [
+        "currency", "spend", "impressions", "clicks", "conversions", "conversion_value",
+    ]))
+    source_rows = query(
+        f"SELECT {','.join(raw_fields)} FROM paid_metrics WHERE {' AND '.join(where)}",
+        params,
+    )
+    result_dimensions = list(dimensions)
+    if financial_metrics:
+        result_dimensions.append("currency")
+    grouped: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for source in source_rows:
+        dimension_values = []
+        for dimension in dimensions:
+            value = source[DIMENSIONS[dimension]]
+            rule_field = transform_fields.get(dimension)
+            dimension_values.append(apply_rules(rule_field, value) if rule_field else value)
+        currency = str(source["currency"] or "").strip().upper() if financial_metrics else None
+        key = tuple(dimension_values + ([currency] if financial_metrics else []))
+        bucket = grouped.setdefault(key, {
+            **dict(zip(result_dimensions, key)),
+            "_spend": 0.0, "_impressions": 0, "_clicks": 0,
+            "_conversions": 0.0, "_conversion_value": 0.0,
+        })
+        for field in ("spend", "impressions", "clicks", "conversions", "conversion_value"):
+            bucket[f"_{field}"] += source[field] or 0
+    rows = []
+    for bucket in grouped.values():
+        row = {name: bucket[name] for name in result_dimensions}
+        currency_available = not financial_metrics or bool(row.get("currency"))
+        values = {
+            "spend": bucket["_spend"], "impressions": bucket["_impressions"],
+            "clicks": bucket["_clicks"], "conversions": bucket["_conversions"],
+            "conversion_value": bucket["_conversion_value"],
+            "ctr": (100.0 * bucket["_clicks"] / bucket["_impressions"]
+                    if bucket["_impressions"] else None),
+            "cpc": bucket["_spend"] / bucket["_clicks"] if bucket["_clicks"] else None,
+            "cpa": bucket["_spend"] / bucket["_conversions"] if bucket["_conversions"] else None,
+        }
+        for metric in metrics:
+            row[metric] = (values[metric] if currency_available or metric not in financial_metrics else None)
+        rows.append(row)
+    rows.sort(key=lambda row: (row.get(sort) is not None, row.get(sort)),
+              reverse=direction == "DESC")
+    rows = rows[:limit]
     warnings = []
     if financial_metrics:
         if any(not row["currency"] for row in rows):

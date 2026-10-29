@@ -127,7 +127,7 @@ Important implementation areas:
 
 Native providers include Google Ads, Meta Ads, GA4, Google Search Console, Superleap CRM, LinkedIn Ads, TikTok Ads, Ahrefs, Gmail reporting, generic REST APIs, and CSV files, folders, URLs, or published Google Sheets.
 
-Connector credentials are stored in the macOS Keychain for the local Mac runtime. Linux deployments use the configured encrypted secret store. Database backups do not include Keychain credentials.
+Connector credentials were migrated on 2026-10-28 from 16 macOS Keychain references to Docker-compatible Fernet ciphertext in PostgreSQL. The Fernet key remains a plaintext environment secret in the ignored source and installed-runtime `.env` files because encryption keys, API keys, and database URLs must be recoverable at runtime and therefore cannot be hashed. The original Keychain items were retained for rollback. Passwords remain salted PBKDF2-SHA256 hashes with 600,000 iterations; session and invitation tokens remain SHA-256 hashes. No credential values belong in this file or Git.
 
 ## Persistence and migrations
 
@@ -139,7 +139,7 @@ The persistence migration is implemented.
 - The active Vutto runtime has been cut over to a Supabase PostgreSQL database.
 - The portal applies migrations at startup and records them in `schema_migrations`.
 - `portal/models.py` declares 23 persisted tables.
-- Current migration sequence: `0001_initial`, `0002_crm_origins`.
+- Current migration sequence: `0001_initial`, `0002_crm_origins`, `0003_campaign_revenue_rollup`, `0004_paid_reporting_indexes`, `0005_account_mfa`.
 - Rollback refuses to drop populated tables unless a maintainer explicitly uses `force=True`.
 - PostgreSQL backfill tooling exists in `scripts/backfill_postgres.py`.
 
@@ -203,6 +203,13 @@ Do not convert an old chat statement that a workbook was completed into proof th
 | 2026-10-27 | `6305108` | Recovered PostgreSQL campaign reporting and scheduler behavior |
 | 2026-10-27 | `57c084f` | Removed repeated transformation-rule reads, coalesced duplicate campaign requests, and isolated tests from the production database |
 | 2026-10-28 | `e5ae92b` | Added a 15-second sign-in request timeout so the login screen cannot spin forever |
+| 2026-10-28 | uncommitted | Added a CRM campaign-revenue rollup so Paid reporting can avoid scanning raw CRM leads after the next CRM sync or backfill |
+| 2026-10-28 | uncommitted | Migrated 16 connector credentials to Fernet encryption for Docker compatibility; retained Keychain rollback references and displayed no secrets |
+| 2026-10-28 | uncommitted | Removed connection-card and channel-report N+1 queries, added five-minute report caches, reused PostgreSQL connections, and consolidated initial dashboard data into one bootstrap request |
+| 2026-10-28 | uncommitted | Repaired PostgreSQL governance seeding, CRM `HAVING`, Data Quality grouping, schema introspection, Explorer transformations, and duplicate-connection conflict handling while retaining SQLite support |
+| 2026-10-28 | uncommitted | Added production TOTP MFA with encrypted seeds, one-time hashed recovery codes, enrollment verification, challenge throttling, session revocation, a PostgreSQL migration, and fail-closed network startup |
+| 2026-10-28 | uncommitted | Verified `vortex-qa-test@vutto.in` was the named Viewer QA account, removed it with guarded identity predicates, and confirmed no matching account remained; no password was read or displayed |
+| 2026-10-28 | uncommitted | Replaced inconsistent decorative glyphs with a first-party accessible SVG icon set after the supplied Flaticon login URL failed to provide asset-level licensing evidence |
 
 ## Last verified measurements
 
@@ -222,6 +229,17 @@ These are dated observations, not permanent guarantees.
 - Meta: 8 campaigns.
 - Demand filter: 15 campaigns.
 - Supply filter: 15 campaigns.
+
+### Portal performance verified on 2026-10-28
+
+- `/api/connections` fell from 66.01 seconds to 4.15 seconds cold by replacing more than 170 sequential queries with three aggregate queries.
+- The Channels report fell from 58.83 seconds to 4.81 seconds cold by loading transformation rules once instead of once per row.
+- The initial Overview payload, profile, UI preferences, connection state, and automation rules now use one authenticated bootstrap request.
+- An immediate Docker browser reload displayed live Overview data in 3.75 seconds after the report cache was warm.
+- The live Docker Paid page displayed 32 campaigns and a populated campaign table in about 5.25 seconds during the final browser check.
+- A cold browser load after the five-minute cache expired took about 25 seconds. This remains an open performance limitation caused by rebuilding reports against remote PostgreSQL. Do not describe cold loading as instant.
+- Full regression result: 330 tests passed and 1 test was skipped.
+- Both live deployments returned HTTP 200 from `/readyz`: macOS on port 8787 and Docker on port 8789.
 - Enabled filter: 26 campaigns.
 - Paused filter: 6 campaigns.
 - Search for `Faridabad`: 2 campaigns.
@@ -232,11 +250,30 @@ These are dated observations, not permanent guarantees.
 - Earlier direct campaign reporting took about 42 seconds because transformation rules were repeatedly queried and the browser issued duplicate requests.
 - After the fix, direct warm reporting was about 3.0 to 3.9 seconds.
 - Browser testing showed the Paid page loading 32 campaigns without console errors before the later sign-in incident.
+- A later forced refresh of the 32-campaign Paid page took about 6.3 seconds. The primary remaining cost is campaign-level aggregation over remote PostgreSQL. The new revenue rollup removes one raw-CRM-lead aggregation after it has been populated.
 
 ### Test state observed on 2026-10-27
 
 - Full suite: 326 tests passed, 1 skipped.
 - Tests were changed to use isolated temporary SQLite databases instead of inheriting a production PostgreSQL URL.
+
+### Repair verification observed on 2026-10-28
+
+- Focused database, authentication, access, reporting, and UI integration: 122 tests passed.
+- Full regression suite: 342 tests passed and 1 test was skipped.
+- Rebuilt SQLite Docker verification returned HTTP 200 from `/healthz` in 0.018 seconds and `/readyz` in 0.005 seconds.
+- A loopback-only, scheduler-disabled PostgreSQL verification container returned HTTP 200 from `/healthz` in 0.009 seconds and `/readyz` in 0.700 seconds. PostgreSQL mode was active and migration `0005_account_mfa` was recorded.
+- Direct cold PostgreSQL timings for the selected reporting range were: Connections 4.108 seconds, CRM 22.699 seconds, Workspace governance 14.031 seconds, Data Explorer 4.929 seconds, and Data Quality 88.369 seconds.
+- Data Quality at 88.369 seconds is an open performance defect. The repaired query is correct but not production-fast against the current remote PostgreSQL dataset.
+- Browser accessibility inspection confirmed the CRM, Workspace, Data Explorer, Portal accounts, Connections, and Data Hub structures remained keyboard-addressable with visible labels. The source checkout's icon and mobile-navigation regressions passed automated tests. The installed macOS runtime was not replaced during this repair, so its browser page can still show pre-repair errors until deployment.
+
+### MFA operating requirements
+
+- Public access remains possible only behind HTTPS through the documented loopback reverse-proxy or tunnel pattern.
+- Set a dedicated `PORTAL_MFA_ENCRYPTION_KEY` in the deployment secret store. Do not commit it or reuse it outside MFA seed protection.
+- Every enabled password account must complete MFA enrollment before network exposure. Non-loopback startup fails when the key is absent or any enabled password account is unenrolled.
+- Recovery codes are returned once at enrollment, stored only as keyed hashes, and consumed individually. They must never be logged or copied into this file.
+- Run one portal instance. Authentication throttles and MFA challenges are process-local.
 
 ## Major issues and risks
 
